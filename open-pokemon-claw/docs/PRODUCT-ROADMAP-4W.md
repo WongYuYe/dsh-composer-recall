@@ -37,6 +37,32 @@
 
 ---
 
+## Week 1 验收结论（2026-03-11）
+
+### 状态
+通过，可进入 Week 2。
+
+### 已完成
+- 真实 OpenClaw runtime 已接通
+- 公网预览已可访问：`/open-pokemon-claw/`
+- HTTP 状态接口已通
+- WebSocket 实时状态已通
+- 前端已适配子路径部署
+- `openclaw.agents` 数据已接入
+
+### Week 1 期间修复的问题
+1. `openclaw status --json` 输出前缀日志污染 JSON 解析
+2. 后端状态推断缺少 `toFiniteNumber`
+3. 前端子路径部署仍使用根路径 `/api/...`
+4. Nginx WebSocket 代理缺少 upgrade 头，导致实时连接失败
+5. 前端在 HTTP 正常但 WS 失败时误报“未连接”
+
+### 结论说明
+Week 1 的核心目标已经达成：真数据、真 runtime、公网预览、HTTP 与 WS 都已打通。
+后续重点应转入 Week 2 的“能管”能力，而不是继续停留在链路打通。
+
+---
+
 ## Week 2：补最小控制闭环
 
 ### 目标

@@ -91,6 +91,25 @@ Week 1 的核心目标已经达成：真数据、真 runtime、公网预览、HT
 
 ---
 
+## Week 2 验收结论（2026-03-11）
+
+### 状态
+通过，可进入 Week 3。
+
+### 已完成
+- 右侧 Agent 详情面板可点击查看
+- Agent 详情已展示 zone / status / session / model / percentUsed / heartbeat
+- 已支持最小控制动作：发送任务、重试任务、处理完成
+- 已展示最小任务流转关系：`用户 → main` / `main → subagent`
+- 已建立任务详情卡片：title / status / owner / startedAt / updatedAt / latest reply / queue summary
+- 已增加显式运行模式标识：runtime / demo / mock
+
+### 结论说明
+Week 2 的目标是从“能看”推进到“能管”。
+当前版本已具备最小控制闭环，并能让用户看懂任务归属和当前执行方，满足进入 Week 3 的条件。
+
+---
+
 ## Week 3：补时间线与异常处理
 
 ### 目标

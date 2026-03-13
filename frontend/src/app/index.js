@@ -18,7 +18,6 @@ import {
   sceneLabels,
   syncBadgeLabels,
   useDemo,
-  useMock,
   zoneAnchors,
   zoneLabels,
   zoneRenderBounds,
@@ -281,7 +280,7 @@ function normalizeTaskRuntimePayload(payload) {
 }
 
 async function fetchTaskStats() {
-  if (useMock || useDemo) {
+  if (useDemo) {
     return null;
   }
 
@@ -322,7 +321,7 @@ async function fetchTaskStats() {
 }
 
 async function fetchTaskRuntime() {
-  if (useMock || useDemo) {
+  if (useDemo) {
     return null;
   }
 
@@ -945,7 +944,7 @@ function updateTaskActions(state) {
   const actions = Array.isArray(task?.availableActions) ? task.availableActions : [];
   const showRetry = actions.includes("retry");
   const showResolve = actions.includes("resolve");
-  const visible = !useMock && !useDemo && Boolean(task?.taskId) && (showRetry || showResolve);
+  const visible = !useDemo && Boolean(task?.taskId) && (showRetry || showResolve);
 
   setTaskActionVisibility(visible);
   if (!visible) {
@@ -1574,7 +1573,6 @@ function setInterfaceStatus(state, message = "") {
 
 function getRunModeLabel() {
   if (useDemo) return 'demo';
-  if (useMock) return 'mock';
   return 'runtime';
 }
 
@@ -2030,7 +2028,7 @@ function startPolling(reason = "") {
 }
 
 function scheduleWsReconnect() {
-  if (!CONFIG.wsEndpoint || useMock) {
+  if (!CONFIG.wsEndpoint) {
     return;
   }
 
@@ -2122,7 +2120,7 @@ function handleWsStatus(message) {
 }
 
 function connectWebSocket() {
-  if (!CONFIG.wsEndpoint || useMock || useDemo) {
+  if (!CONFIG.wsEndpoint || useDemo) {
     return;
   }
 
@@ -2409,7 +2407,7 @@ async function bootstrapSync() {
     return;
   }
 
-  if (useMock || !CONFIG.wsEndpoint) {
+  if (!CONFIG.wsEndpoint) {
     startPolling("当前未启用 WebSocket，使用 HTTP 轮询。");
     return;
   }

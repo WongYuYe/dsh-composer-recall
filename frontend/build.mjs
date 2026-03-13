@@ -12,12 +12,6 @@ const staticCopies = [
   'vendor/phaser.min.js',
   'openclaw.config.js',
   'docs/preview.png',
-  'mock-alarm.json',
-  'mock-outdoor.json',
-  'mock-rest.json',
-  'mock-status.json',
-  'mock-task-stats-empty.json',
-  'mock-task-stats.json',
 ];
 
 async function ensureDir(dir) {

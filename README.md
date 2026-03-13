@@ -19,8 +19,7 @@
 .
 |-- frontend/
 |-- backend/
-|-- docs/
-`-- scripts/
+`-- docs/
 ```
 
 ## 快速启动

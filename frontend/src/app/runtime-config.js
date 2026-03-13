@@ -9,7 +9,6 @@ export const MAP_HEIGHT = LOGICAL_MAP_HEIGHT * MAP_RENDER_SCALE;
 export const MAX_FEED_ITEMS = 12;
 export const ROBOT_DISPLAY_NAME = "小龙虾";
 
-export const useMock = urlParams.get("mock") === "1";
 export const useDemo = urlParams.get("demo") === "1";
 export const demoAlertEnabled = urlParams.get("demoAlert") === "1";
 
@@ -23,8 +22,8 @@ export const REST_ANIMATION_CYCLE_MS = 10 * 60 * 1000;
 export const REST_ROOM_PHASE_MS = 6 * 60 * 1000;
 
 export const CONFIG = {
-  endpoint: endpointOverride || (useMock ? externalConfig.mockEndpoint || "./mock-status.json" : externalConfig.endpoint || "/api/openclaw/status"),
-  wsEndpoint: (useMock || useDemo) ? "" : wsOverride || externalConfig.wsEndpoint || "",
+  endpoint: endpointOverride || externalConfig.endpoint || "/api/openclaw/status",
+  wsEndpoint: useDemo ? "" : wsOverride || externalConfig.wsEndpoint || "",
   taskStatsEndpoint: useDemo ? "" : tasksEndpointOverride || externalConfig.taskStatsEndpoint || "",
   taskRuntimeEndpoint: useDemo ? "" : runtimeEndpointOverride || externalConfig.taskRuntimeEndpoint || "/api/tasks/runtime",
   pollIntervalMs: Math.max(Number(urlParams.get("poll") || externalConfig.pollIntervalMs || 3000), 1500),

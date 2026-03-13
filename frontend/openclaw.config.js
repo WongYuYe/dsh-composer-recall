@@ -13,5 +13,4 @@ window.OPENCLAW_CONFIG = {
   apiKey: "",
   authToken: "",
   headers: {},
-  mockEndpoint: "./mock-status.json",
 };

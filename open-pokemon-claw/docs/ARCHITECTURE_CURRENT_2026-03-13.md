@@ -84,7 +84,8 @@ Node 聚合层当前暴露的主要接口：
 ### 2.4 Nginx 公网入口层
 入口地址：
 
-- `https://www.wangyuye.online/open-pokemon-claw/`
+- 生产：`https://www.wangyuye.online/open-pokemon-claw/`
+- 开发预览：`https://www.wangyuye.online/open-pokemon-claw-dev/`
 
 职责：
 
@@ -301,6 +302,12 @@ cd open-pokemon-claw/frontend
 npm run start
 ```
 
+或直接启动独立开发预览服务：
+
+```bash
+bash open-pokemon-claw/scripts/run-frontend-dev.sh
+```
+
 ### 前端构建
 
 ```bash
@@ -325,6 +332,12 @@ bash open-pokemon-claw/scripts/run-frontend-prod.sh
 
 ```bash
 bash open-pokemon-claw/scripts/stop-frontend-prod.sh
+```
+
+### 开发预览停止脚本
+
+```bash
+bash open-pokemon-claw/scripts/stop-frontend-dev.sh
 ```
 
 ## 6.2 巡检 / 部署脚本

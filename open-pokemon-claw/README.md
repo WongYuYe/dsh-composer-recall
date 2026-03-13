@@ -38,6 +38,8 @@
 - 一键巡检脚本：`scripts/check-live-health.sh`
 - 生产验收脚本：`scripts/prod-acceptance.sh`
 - 一键部署+巡检脚本：`scripts/deploy-frontend-prod.sh`
+- 开发预览启动脚本：`scripts/run-frontend-dev.sh`
+- 开发预览停止脚本：`scripts/stop-frontend-dev.sh`
 
 ## 运行模式
 
@@ -45,6 +47,11 @@
 
 - 开发模式：前端源码直跑，适合快速修改
 - 生产模式：轻构建静态产物 + Node 动态聚合
+
+当前地址区分：
+
+- 生产：`https://www.wangyuye.online/open-pokemon-claw/`
+- 开发预览：`https://www.wangyuye.online/open-pokemon-claw-dev/`
 
 其中生产模式下：
 

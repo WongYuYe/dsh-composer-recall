@@ -36,6 +36,19 @@
 - 一键巡检脚本：`scripts/check-live-health.sh`
 - 生产验收脚本：`scripts/prod-acceptance.sh`
 
+## 运行模式
+
+当前建议采用双模式：
+
+- 开发模式：前端源码直跑，适合快速修改
+- 生产模式：轻构建静态产物 + Node 动态聚合
+
+其中生产模式下：
+
+- `frontend/dist/` 提供压缩后的静态资源
+- `frontend/server.js` 继续负责 API 和 WebSocket 聚合
+- `scripts/run-frontend-prod.sh` 会自动先构建再启动
+
 如果你希望确认页面确实保持了实时连接，而不是只靠 HTTP 轮询：
 
 1. 打开 `https://www.wangyuye.online/open-pokemon-claw/`

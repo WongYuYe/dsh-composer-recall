@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/root/.openclaw/workspace/open-pokemon-claw/frontend"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../frontend" && pwd)"
 LOG="/tmp/open-pokemon-frontend-dev.log"
 PIDFILE="/tmp/open-pokemon-frontend-dev.pid"
 

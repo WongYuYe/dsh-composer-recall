@@ -1,13 +1,17 @@
 # open-pokemon-claw
 
-本地工作区，包含两部分上游代码：
+一个面向 OpenClaw 的可视化运行舱项目。
 
-- `frontend/` ← `https://github.com/onezf/openclaw-visual-frontend`
-- `backend/` ← `https://github.com/onezf/openclaw-visual-backend`
+当前仓库采用单仓库结构，包含：
+
+- `frontend/`：页面与 Node 聚合服务
+- `backend/`：上游后端代码与接口实现
+- `scripts/`：运行、部署、巡检脚本
+- `docs/`：产品、架构、验收与运维文档
 
 ## 当前目标
 
-基于既有前后端仓库，按 4 周路线图把项目从“高辨识度 Demo”推进成“可真实使用的 OpenClaw 控制台”。
+把项目从“高辨识度 Demo”推进成“可真实使用、可长期挂页、具备最小控制闭环的 OpenClaw 运行舱”。
 
 ## 当前结论
 
@@ -32,6 +36,7 @@
 - `docs/NEXT_STEPS_2026-03-13.md`：当前状态与下一步清单
 - `docs/NGINX_PROD_ROUTING_2026-03-13.md`：生产路由与缓存建议
 - `docs/ARCHITECTURE_CURRENT_2026-03-13.md`：当前模式与请求流正式说明
+- `docs/GITHUB_UPLOAD_CHECKLIST_2026-03-13.md`：GitHub 上传前检查清单
 
 ## 巡检
 

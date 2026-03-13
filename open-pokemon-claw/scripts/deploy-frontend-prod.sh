@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/root/.openclaw/workspace/open-pokemon-claw"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRONTEND_DIR="$ROOT/frontend"
 BASE_URL="${BASE_URL:-https://www.wangyuye.online/open-pokemon-claw}"
 CHECK_SCRIPT="$ROOT/scripts/check-live-health.sh"

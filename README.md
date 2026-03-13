@@ -36,7 +36,7 @@
 启动：
 
 ```bash
-bash scripts/run-frontend-dev.sh
+bash scripts/run-pokemon-claw-dev.sh
 ```
 
 开发预览地址：
@@ -53,7 +53,7 @@ bash scripts/run-frontend-dev.sh
 启动：
 
 ```bash
-bash scripts/run-frontend-prod.sh
+bash scripts/run-pokemon-claw-prod.sh
 ```
 
 生产地址：
@@ -67,21 +67,21 @@ bash scripts/run-frontend-prod.sh
 ### 前端开发预览
 
 ```bash
-bash scripts/run-frontend-dev.sh
-bash scripts/stop-frontend-dev.sh
+bash scripts/run-pokemon-claw-dev.sh
+bash scripts/stop-pokemon-claw-dev.sh
 ```
 
 ### 前端生产启动 / 停止
 
 ```bash
-bash scripts/run-frontend-prod.sh
-bash scripts/stop-frontend-prod.sh
+bash scripts/run-pokemon-claw-prod.sh
+bash scripts/stop-pokemon-claw-prod.sh
 ```
 
 ### 前端一键部署 + 巡检
 
 ```bash
-bash scripts/deploy-frontend-prod.sh
+bash scripts/deploy-pokemon-claw-prod.sh
 ```
 
 ### 公网健康检查

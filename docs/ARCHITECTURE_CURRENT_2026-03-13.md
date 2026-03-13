@@ -140,7 +140,7 @@ npm run start
 ### 启动命令
 
 ```bash
-bash scripts/run-frontend-prod.sh
+bash scripts/run-pokemon-claw-prod.sh
 ```
 
 ### 内部流程
@@ -305,7 +305,7 @@ npm run start
 或直接启动独立开发预览服务：
 
 ```bash
-bash scripts/run-frontend-dev.sh
+bash scripts/run-pokemon-claw-dev.sh
 ```
 
 ### 前端构建
@@ -325,19 +325,19 @@ npm run start:prod
 ### 前端生产脚本
 
 ```bash
-bash scripts/run-frontend-prod.sh
+bash scripts/run-pokemon-claw-prod.sh
 ```
 
 ### 前端停止脚本
 
 ```bash
-bash scripts/stop-frontend-prod.sh
+bash scripts/stop-pokemon-claw-prod.sh
 ```
 
 ### 开发预览停止脚本
 
 ```bash
-bash scripts/stop-frontend-dev.sh
+bash scripts/stop-pokemon-claw-dev.sh
 ```
 
 ## 6.2 巡检 / 部署脚本
@@ -359,7 +359,7 @@ bash scripts/check-live-health.sh
 ### 一键部署 + 校验
 
 ```bash
-bash scripts/deploy-frontend-prod.sh
+bash scripts/deploy-pokemon-claw-prod.sh
 ```
 
 会执行：

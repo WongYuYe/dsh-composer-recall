@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../backend" && pwd)"
-LOG="/tmp/open-pokemon-backend-prod.log"
-PIDFILE="/tmp/open-pokemon-backend-prod.pid"
+LOG="/tmp/pokemon-claw-backend-prod.log"
+PIDFILE="/tmp/pokemon-claw-backend-prod.pid"
 
 cd "$ROOT"
 

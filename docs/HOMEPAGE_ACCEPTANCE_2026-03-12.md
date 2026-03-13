@@ -135,8 +135,8 @@ The redundant parallel upstream candidate has been removed:
 - `frontend/server.js`
 - `frontend/app.js`
 - `frontend/phaser-map.js`
-- `scripts/run-frontend-prod.sh`
-- `scripts/stop-frontend-prod.sh`
+- `scripts/run-pokemon-claw-prod.sh`
+- `scripts/stop-pokemon-claw-prod.sh`
 
 ---
 

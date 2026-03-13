@@ -13,8 +13,8 @@ This round refines `pokemon-claw` from an experimental pixel dashboard into a li
 - Kept `pokemon-claw` as a standalone frontend aggregation service
 - Stopped treating `npm run dev` / `node --watch` as a normal long-running mode
 - Added production helper scripts:
-  - `scripts/run-frontend-prod.sh`
-  - `scripts/stop-frontend-prod.sh`
+  - `scripts/run-pokemon-claw-prod.sh`
+  - `scripts/stop-pokemon-claw-prod.sh`
 
 ## 2. Lower impact on OpenClaw
 

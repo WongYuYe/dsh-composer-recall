@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../frontend" && pwd)"
-LOG="/tmp/open-pokemon-frontend-dev.log"
-PIDFILE="/tmp/open-pokemon-frontend-dev.pid"
+LOG="/tmp/pokemon-claw-frontend-dev.log"
+PIDFILE="/tmp/pokemon-claw-frontend-dev.pid"
 
 export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-3010}"

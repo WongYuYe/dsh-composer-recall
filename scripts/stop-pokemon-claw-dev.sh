@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PIDFILE="/tmp/open-pokemon-frontend-dev.pid"
+PIDFILE="/tmp/pokemon-claw-frontend-dev.pid"
 
 if [[ ! -f "$PIDFILE" ]]; then
   echo "pidfile not found; nothing to stop"

@@ -24,13 +24,13 @@ npm run build
 test -f "$FRONTEND_DIR/dist/index.html" || fail "dist/index.html missing after build"
 
 step "restart frontend prod service"
-bash "$ROOT/scripts/stop-frontend-prod.sh" || true
-bash "$ROOT/scripts/run-frontend-prod.sh"
+bash "$ROOT/scripts/stop-pokemon-claw-prod.sh" || true
+bash "$ROOT/scripts/run-pokemon-claw-prod.sh"
 
 step "wait for local diagnostics"
 for _ in $(seq 1 20); do
-  if curl -fsS http://127.0.0.1:3008/api/openclaw/diagnostics >/tmp/open-pokemon-diagnostics.json 2>/dev/null; then
-    jq -e '.ok == true' /tmp/open-pokemon-diagnostics.json >/dev/null && break
+  if curl -fsS http://127.0.0.1:3008/api/openclaw/diagnostics >/tmp/pokemon-claw-diagnostics.json 2>/dev/null; then
+    jq -e '.ok == true' /tmp/pokemon-claw-diagnostics.json >/dev/null && break
   fi
   sleep 1
 done

@@ -1,4 +1,4 @@
-# open-pokemon-claw Nginx 生产路由建议（2026-03-13）
+# pokemon-claw Nginx 生产路由建议（2026-03-13）
 
 目标：
 
@@ -9,12 +9,12 @@
 ## 推荐路由结构
 
 ```nginx
-location = /open-pokemon-claw {
-    return 301 /open-pokemon-claw/;
+location = /pokemon-claw {
+    return 301 /pokemon-claw/;
 }
 
 # websocket：长连接，不缓存
-location ^~ /open-pokemon-claw/ws/ {
+location ^~ /pokemon-claw/ws/ {
     proxy_pass http://127.0.0.1:3008/ws/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -30,7 +30,7 @@ location ^~ /open-pokemon-claw/ws/ {
 }
 
 # API：动态接口，不缓存
-location ^~ /open-pokemon-claw/api/ {
+location ^~ /pokemon-claw/api/ {
     proxy_pass http://127.0.0.1:3008/api/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -44,7 +44,7 @@ location ^~ /open-pokemon-claw/api/ {
 }
 
 # hash 后的构建产物：长缓存
-location ^~ /open-pokemon-claw/assets/ {
+location ^~ /pokemon-claw/assets/ {
     proxy_pass http://127.0.0.1:3008/assets/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -57,7 +57,7 @@ location ^~ /open-pokemon-claw/assets/ {
 }
 
 # vendor 和文档预览图：中长缓存
-location ^~ /open-pokemon-claw/vendor/ {
+location ^~ /pokemon-claw/vendor/ {
     proxy_pass http://127.0.0.1:3008/vendor/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -67,7 +67,7 @@ location ^~ /open-pokemon-claw/vendor/ {
     add_header X-Content-Type-Options "nosniff" always;
 }
 
-location ^~ /open-pokemon-claw/docs/ {
+location ^~ /pokemon-claw/docs/ {
     proxy_pass http://127.0.0.1:3008/docs/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -78,7 +78,7 @@ location ^~ /open-pokemon-claw/docs/ {
 }
 
 # 根页面：短缓存，便于发布后尽快拿到新 index
-location ^~ /open-pokemon-claw/ {
+location ^~ /pokemon-claw/ {
     proxy_pass http://127.0.0.1:3008/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -98,7 +98,7 @@ location ^~ /open-pokemon-claw/ {
 
 ### 为什么要拆开
 
-原来所有 `/open-pokemon-claw/` 请求都走一条代理：
+原来所有 `/pokemon-claw/` 请求都走一条代理：
 
 - 静态资源无法单独设缓存策略
 - API/WS/HTML 的行为混在一起

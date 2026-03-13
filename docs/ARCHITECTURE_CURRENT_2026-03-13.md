@@ -1,8 +1,8 @@
-# open-pokemon-claw 当前架构说明（2026-03-13）
+# pokemon-claw 当前架构说明（2026-03-13）
 
 ## 1. 当前定位
 
-`open-pokemon-claw` 当前不是全功能后台，也不是纯静态展示页。
+`pokemon-claw` 当前不是全功能后台，也不是纯静态展示页。
 
 它的当前形态是：
 
@@ -84,8 +84,8 @@ Node 聚合层当前暴露的主要接口：
 ### 2.4 Nginx 公网入口层
 入口地址：
 
-- 生产：`https://www.wangyuye.online/open-pokemon-claw/`
-- 开发预览：`https://www.wangyuye.online/open-pokemon-claw-dev/`
+- 生产：`https://www.wangyuye.online/pokemon-claw/`
+- 开发预览：`https://www.wangyuye.online/pokemon-claw-dev/`
 
 职责：
 
@@ -184,7 +184,7 @@ bash scripts/run-frontend-prod.sh
 
 用户访问：
 
-- `https://www.wangyuye.online/open-pokemon-claw/`
+- `https://www.wangyuye.online/pokemon-claw/`
 
 请求先到 Nginx，再转到本地：
 
@@ -199,9 +199,9 @@ Node 根据当前模式返回页面：
 
 前端页面会进一步请求：
 
-- `/open-pokemon-claw/assets/...`
-- `/open-pokemon-claw/vendor/...`
-- `/open-pokemon-claw/docs/...`
+- `/pokemon-claw/assets/...`
+- `/pokemon-claw/vendor/...`
+- `/pokemon-claw/docs/...`
 
 当前静态资源策略：
 
@@ -213,10 +213,10 @@ Node 根据当前模式返回页面：
 
 前端会请求：
 
-- `/open-pokemon-claw/api/openclaw/status`
-- `/open-pokemon-claw/api/tasks/stats`
-- `/open-pokemon-claw/api/tasks/runtime`
-- `/open-pokemon-claw/api/openclaw/diagnostics`
+- `/pokemon-claw/api/openclaw/status`
+- `/pokemon-claw/api/tasks/stats`
+- `/pokemon-claw/api/tasks/runtime`
+- `/pokemon-claw/api/openclaw/diagnostics`
 
 Nginx 负责转发到 Node 聚合层：
 
@@ -228,7 +228,7 @@ Node 再从上游拉取或合成状态，再回给前端。
 
 前端会建立：
 
-- `/open-pokemon-claw/ws/openclaw/status`
+- `/pokemon-claw/ws/openclaw/status`
 
 Nginx 负责 websocket upgrade，转发到：
 
@@ -244,7 +244,7 @@ Node WebSocket 流当前支持：
 页面常驻打开时，应保持实时连接。可通过：
 
 ```bash
-curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
+curl -fsS https://www.wangyuye.online/pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
 ```
 
 验证是否大于 `0`。
@@ -257,31 +257,31 @@ curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics
 
 ### 5.1 WebSocket
 
-- `/open-pokemon-claw/ws/`
+- `/pokemon-claw/ws/`
 - 独立处理 upgrade
 - `Cache-Control: no-store`
 
 ### 5.2 API
 
-- `/open-pokemon-claw/api/`
+- `/pokemon-claw/api/`
 - 独立动态接口代理
 - `Cache-Control: no-store`
 
 ### 5.3 构建产物 assets
 
-- `/open-pokemon-claw/assets/`
+- `/pokemon-claw/assets/`
 - 长缓存
 - `immutable`
 
 ### 5.4 vendor / docs
 
-- `/open-pokemon-claw/vendor/`
-- `/open-pokemon-claw/docs/`
+- `/pokemon-claw/vendor/`
+- `/pokemon-claw/docs/`
 - 中长缓存
 
 ### 5.5 页面根路由
 
-- `/open-pokemon-claw/`
+- `/pokemon-claw/`
 - 短缓存
 - `stale-while-revalidate`
 

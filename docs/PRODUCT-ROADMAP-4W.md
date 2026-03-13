@@ -1,4 +1,4 @@
-# open-pokemon-claw · 4 周产品路线图
+# pokemon-claw · 4 周产品路线图
 
 ## 总目标
 
@@ -44,7 +44,7 @@
 
 ### 已完成
 - 真实 OpenClaw runtime 已接通
-- 公网预览已可访问：`/open-pokemon-claw/`
+- 公网预览已可访问：`/pokemon-claw/`
 - HTTP 状态接口已通
 - WebSocket 实时状态已通
 - 前端已适配子路径部署

@@ -2,7 +2,7 @@
 
 ## Project
 
-`open-pokemon-claw`
+`pokemon-claw`
 
 ## Acceptance Date
 
@@ -65,7 +65,7 @@ This acceptance round covers:
 ### 2.6 Subpath deployment
 **Result:** Pass
 
-Under `/open-pokemon-claw/`, the following are working correctly:
+Under `/pokemon-claw/`, the following are working correctly:
 - page path
 - API paths
 - WebSocket path

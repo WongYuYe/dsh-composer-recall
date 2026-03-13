@@ -1,8 +1,8 @@
-# open-pokemon-claw · 下一阶段架构与设计方案
+# pokemon-claw · 下一阶段架构与设计方案
 
 ## 1. 产品定位
 
-`open-pokemon-claw` 不是普通状态大屏，而是面向 OpenClaw 的 **可视化操作层**：
+`pokemon-claw` 不是普通状态大屏，而是面向 OpenClaw 的 **可视化操作层**：
 
 - 地图层：全局感知谁在做什么
 - 面板层：查看与执行控制动作

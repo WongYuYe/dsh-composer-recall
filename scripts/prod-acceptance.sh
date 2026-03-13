@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-https://www.wangyuye.online/open-pokemon-claw}"
+BASE_URL="${1:-https://www.wangyuye.online/pokemon-claw}"
 WS_URL="${BASE_URL/https:/wss:}/ws/openclaw/status"
 LOCAL_BACKEND="${LOCAL_BACKEND:-http://127.0.0.1:8787}"
 RUN_WRITE_CHECKS="${RUN_WRITE_CHECKS:-0}"

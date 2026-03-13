@@ -1,10 +1,10 @@
 # PRODUCT_DEFINITION.md
 
-# open-pokemon-claw 产品定义
+# pokemon-claw 产品定义
 
 ## 1. 产品一句话
 
-`open-pokemon-claw` 是一个面向 OpenClaw 的可视化运行舱。它通过空间化、游戏化的界面，把 AI 运行状态、任务流转和异常信号转化为一眼可读的持续观察体验，并提供最小控制闭环。
+`pokemon-claw` 是一个面向 OpenClaw 的可视化运行舱。它通过空间化、游戏化的界面，把 AI 运行状态、任务流转和异常信号转化为一眼可读的持续观察体验，并提供最小控制闭环。
 
 ## 2. 产品定位
 

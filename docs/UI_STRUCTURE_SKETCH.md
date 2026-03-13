@@ -1,6 +1,6 @@
 # UI_STRUCTURE_SKETCH.md
 
-# open-pokemon-claw 页面结构草图说明
+# pokemon-claw 页面结构草图说明
 
 ## 1. 设计目标
 

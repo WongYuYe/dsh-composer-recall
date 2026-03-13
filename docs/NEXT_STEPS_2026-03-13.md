@@ -1,4 +1,4 @@
-# open-pokemon-claw 下一步清单（2026-03-13）
+# pokemon-claw 下一步清单（2026-03-13）
 
 ## 今天
 
@@ -37,7 +37,7 @@
 
 ```bash
 # 1) 打开页面后，看连接数是否 > 0
-curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
+curl -fsS https://www.wangyuye.online/pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
 
 # 2) 跑一键巡检
 bash scripts/check-live-health.sh

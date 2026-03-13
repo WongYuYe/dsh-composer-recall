@@ -1,4 +1,4 @@
-# open-pokemon-claw
+# pokemon-claw
 
 一个面向 OpenClaw 的可视化运行舱项目。
 
@@ -41,7 +41,7 @@ bash scripts/run-frontend-dev.sh
 
 开发预览地址：
 
-- `https://www.wangyuye.online/open-pokemon-claw-dev/`
+- `https://www.wangyuye.online/pokemon-claw-dev/`
 
 ### 2. 生产模式
 适合正式访问、长期挂页和公网演示。
@@ -58,7 +58,7 @@ bash scripts/run-frontend-prod.sh
 
 生产地址：
 
-- `https://www.wangyuye.online/open-pokemon-claw/`
+- `https://www.wangyuye.online/pokemon-claw/`
 
 ---
 
@@ -119,7 +119,7 @@ npm run build
 如果你想确认页面当前是否真的保持了实时连接，而不是只靠 HTTP：
 
 ```bash
-curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
+curl -fsS https://www.wangyuye.online/pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
 ```
 
 正常情况下，这个值应大于 `0`。

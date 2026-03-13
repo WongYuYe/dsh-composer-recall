@@ -2,15 +2,15 @@
 
 ## Title
 
-refine open-pokemon-claw runtime shell and simplify upstream routing
+refine pokemon-claw runtime shell and simplify upstream routing
 
 ## Summary
 
-This round refines `open-pokemon-claw` from an experimental pixel dashboard into a lighter OpenClaw runtime shell with simpler routing, lower system impact, cleaner UI structure, and clearer documentation.
+This round refines `pokemon-claw` from an experimental pixel dashboard into a lighter OpenClaw runtime shell with simpler routing, lower system impact, cleaner UI structure, and clearer documentation.
 
 ## 1. Runtime architecture
 
-- Kept `open-pokemon-claw` as a standalone frontend aggregation service
+- Kept `pokemon-claw` as a standalone frontend aggregation service
 - Stopped treating `npm run dev` / `node --watch` as a normal long-running mode
 - Added production helper scripts:
   - `scripts/run-frontend-prod.sh`
@@ -25,7 +25,7 @@ This round refines `open-pokemon-claw` from an experimental pixel dashboard into
 
 ## 3. Subpath and URL fixes
 
-- Fixed subpath deployment behavior under `/open-pokemon-claw/`
+- Fixed subpath deployment behavior under `/pokemon-claw/`
 - Fixed WebSocket path resolution for public deployment
 - Removed bad task endpoint fallback behavior
 - Stopped incorrect requests to:
@@ -77,7 +77,7 @@ This round refines `open-pokemon-claw` from an experimental pixel dashboard into
 
 ## Current intended state
 
-The current target state of `open-pokemon-claw` is:
+The current target state of `pokemon-claw` is:
 
 - standalone process
 - lighter operational profile

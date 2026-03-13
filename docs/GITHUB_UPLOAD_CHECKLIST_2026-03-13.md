@@ -1,4 +1,4 @@
-# open-pokemon-claw GitHub 上传检查清单（2026-03-13）
+# pokemon-claw GitHub 上传检查清单（2026-03-13）
 
 ## 已处理
 

@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRONTEND_DIR="$ROOT/frontend"
-BASE_URL="${BASE_URL:-https://www.wangyuye.online/open-pokemon-claw}"
+BASE_URL="${BASE_URL:-https://www.wangyuye.online/pokemon-claw}"
 CHECK_SCRIPT="$ROOT/scripts/check-live-health.sh"
 
 step() { printf '\n==> %s\n' "$*"; }

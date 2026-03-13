@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-https://www.wangyuye.online/open-pokemon-claw}"
+BASE_URL="${1:-https://www.wangyuye.online/pokemon-claw}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

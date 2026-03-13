@@ -2,8 +2,8 @@
 
 适用目标：
 
-- 公网地址：`https://www.wangyuye.online/open-pokemon-claw/`
-- 子路径部署：`/open-pokemon-claw/`
+- 公网地址：`https://www.wangyuye.online/pokemon-claw/`
+- 子路径部署：`/pokemon-claw/`
 - 前端聚合层：`frontend/server.js`
 - 上游后端：`backend/src/server.js`
 
@@ -12,8 +12,8 @@
 ### 1.1 HTTP 基础连通
 
 ```bash
-curl -sS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/status | jq '.zone, .mode, .alertLevel, ._meta.wsPath'
-curl -sS https://www.wangyuye.online/open-pokemon-claw/api/tasks/runtime | jq '.data.queueSummary'
+curl -sS https://www.wangyuye.online/pokemon-claw/api/openclaw/status | jq '.zone, .mode, .alertLevel, ._meta.wsPath'
+curl -sS https://www.wangyuye.online/pokemon-claw/api/tasks/runtime | jq '.data.queueSummary'
 ```
 
 通过标准：
@@ -29,7 +29,7 @@ curl -sS https://www.wangyuye.online/open-pokemon-claw/api/tasks/runtime | jq '.
 ```bash
 node - <<'NODE'
 const WebSocket = require('./frontend/node_modules/ws');
-const url = 'wss://www.wangyuye.online/open-pokemon-claw/ws/openclaw/status';
+const url = 'wss://www.wangyuye.online/pokemon-claw/ws/openclaw/status';
 const ws = new WebSocket(url);
 ws.on('open', () => console.log('OPEN', url));
 ws.on('message', (msg) => {
@@ -56,7 +56,7 @@ NODE
 ### 1.3 Agent 面板基础数据
 
 ```bash
-curl -sS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/status | jq '.openclaw.agents'
+curl -sS https://www.wangyuye.online/pokemon-claw/api/openclaw/status | jq '.openclaw.agents'
 ```
 
 通过标准：
@@ -79,7 +79,7 @@ curl -sS -X POST http://127.0.0.1:8787/api/debug/state \
 ### 2.2 验证公网状态切到 alarm
 
 ```bash
-curl -sS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/status | jq '.zone, .mode, .openclaw.runtime.currentTask.availableActions'
+curl -sS https://www.wangyuye.online/pokemon-claw/api/openclaw/status | jq '.zone, .mode, .openclaw.runtime.currentTask.availableActions'
 ```
 
 通过标准：
@@ -91,7 +91,7 @@ curl -sS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/status | jq 
 ### 2.3 验证任务动作：retry
 
 ```bash
-curl -sS -X POST https://www.wangyuye.online/open-pokemon-claw/api/tasks/debug-alarm-task/retry \
+curl -sS -X POST https://www.wangyuye.online/pokemon-claw/api/tasks/debug-alarm-task/retry \
   -H 'content-type: application/json' \
   -d '{}' | jq '.ok, .data.action, .data.runtime.currentTask.status'
 ```
@@ -105,7 +105,7 @@ curl -sS -X POST https://www.wangyuye.online/open-pokemon-claw/api/tasks/debug-a
 ### 2.4 验证任务动作：resolve
 
 ```bash
-curl -sS -X POST https://www.wangyuye.online/open-pokemon-claw/api/tasks/debug-alarm-task/resolve \
+curl -sS -X POST https://www.wangyuye.online/pokemon-claw/api/tasks/debug-alarm-task/resolve \
   -H 'content-type: application/json' \
   -d '{}' | jq '.ok, .data.action, .data.runtime.currentTask'
 ```
@@ -119,7 +119,7 @@ curl -sS -X POST https://www.wangyuye.online/open-pokemon-claw/api/tasks/debug-a
 ### 2.5 验证 agent 发送任务
 
 ```bash
-curl -sS -X POST https://www.wangyuye.online/open-pokemon-claw/api/openclaw/agent/turn \
+curl -sS -X POST https://www.wangyuye.online/pokemon-claw/api/openclaw/agent/turn \
   -H 'content-type: application/json' \
   -d '{"agent":"ops","message":"[acceptance] 连通性验收消息，可忽略"}' | jq '.ok, .data.status, .data.summary'
 ```
@@ -148,8 +148,8 @@ curl -sS -X POST http://127.0.0.1:8787/api/debug/state \
 
 - `wsEndpoint` 默认是 `ws/openclaw/status`
 - `buildWsUrl()` 以 `window.location.host` 为基准拼接
-- 页面在 `/open-pokemon-claw/` 时，会错误连到 `/ws/openclaw/status`
-- 正确地址应为 `/open-pokemon-claw/ws/openclaw/status`
+- 页面在 `/pokemon-claw/` 时，会错误连到 `/ws/openclaw/status`
+- 正确地址应为 `/pokemon-claw/ws/openclaw/status`
 
 建议：
 
@@ -168,8 +168,8 @@ return `/api/tasks/${encodeURIComponent(taskId)}/${action}`;
 
 问题：
 
-- 在 `/open-pokemon-claw/` 下会打到站点根路径 `/api/tasks/...`
-- 正确应落到 `/open-pokemon-claw/api/tasks/...`
+- 在 `/pokemon-claw/` 下会打到站点根路径 `/api/tasks/...`
+- 正确应落到 `/pokemon-claw/api/tasks/...`
 
 建议：
 
@@ -203,7 +203,7 @@ return `api/tasks/${encodeURIComponent(taskId)}/${action}`;
 
 1. 公网 `GET /api/openclaw/status` 返回 JSON
 2. 公网 `GET /api/tasks/runtime` 返回 JSON
-3. 子路径 WS：`/open-pokemon-claw/ws/openclaw/status` 可握手
+3. 子路径 WS：`/pokemon-claw/ws/openclaw/status` 可握手
 4. 页面显示的 agent 列表非空或能解释为空
 5. 发送任务返回成功，且不泄露内部冗长元数据
 6. retry / resolve 在子路径场景下能成功命中

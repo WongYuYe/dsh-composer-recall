@@ -31,6 +31,7 @@
 - `docs/WEEK1-BUILD-LIST.md`：第 1 周执行清单
 - `docs/NEXT_STEPS_2026-03-13.md`：当前状态与下一步清单
 - `docs/NGINX_PROD_ROUTING_2026-03-13.md`：生产路由与缓存建议
+- `docs/ARCHITECTURE_CURRENT_2026-03-13.md`：当前模式与请求流正式说明
 
 ## 巡检
 

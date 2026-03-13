@@ -2,75 +2,149 @@
 
 一个面向 OpenClaw 的可视化运行舱项目。
 
-当前仓库采用单仓库结构，包含：
+它当前的目标不是做一个“全功能后台”，而是做一个：
 
-- `frontend/`：页面与 Node 聚合服务
-- `backend/`：上游后端代码与接口实现
-- `scripts/`：运行、部署、巡检脚本
-- `docs/`：产品、架构、验收与运维文档
+- 可长期挂页的运行舱
+- 有实时状态流的 dashboard
+- 具备最小控制闭环（如 retry / resolve / agent turn）的操作界面
 
-## 当前目标
+---
 
-把项目从“高辨识度 Demo”推进成“可真实使用、可长期挂页、具备最小控制闭环的 OpenClaw 运行舱”。
+## 仓库结构
 
-## 当前结论
+```text
+.
+├── frontend/   # 页面 + Node 聚合服务
+├── backend/    # 上游后端代码与接口实现
+├── scripts/    # 运行、部署、巡检脚本
+└── docs/       # 产品、架构、验收与运维文档
+```
 
-现状已经具备：
+---
+
+## 当前运行模式
+
+项目当前采用双模式：
+
+### 1. 开发模式
+适合快速改 UI、联调、排障。
+
+- 前端源码直跑
+- 不走生产构建产物
+- 更适合本地调试和开发预览
+
+启动：
+
+```bash
+bash scripts/run-frontend-dev.sh
+```
+
+开发预览地址：
+
+- `https://www.wangyuye.online/open-pokemon-claw-dev/`
+
+### 2. 生产模式
+适合正式访问、长期挂页和公网演示。
+
+- 先做轻构建
+- 再由 Node 提供 `dist/` 静态产物
+- Node 继续负责 API 和 WebSocket 动态聚合
+
+启动：
+
+```bash
+bash scripts/run-frontend-prod.sh
+```
+
+生产地址：
+
+- `https://www.wangyuye.online/open-pokemon-claw/`
+
+---
+
+## 常用命令
+
+### 前端开发预览
+
+```bash
+bash scripts/run-frontend-dev.sh
+bash scripts/stop-frontend-dev.sh
+```
+
+### 前端生产启动 / 停止
+
+```bash
+bash scripts/run-frontend-prod.sh
+bash scripts/stop-frontend-prod.sh
+```
+
+### 前端一键部署 + 巡检
+
+```bash
+bash scripts/deploy-frontend-prod.sh
+```
+
+### 公网健康检查
+
+```bash
+bash scripts/check-live-health.sh
+```
+
+### 前端单独构建
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+---
+
+## 当前能力
+
+目前项目已经具备：
 
 - 像素地图前端雏形
-- 面向 OpenClaw 的后端 REST/WS 聚合层
-- 基础状态、任务统计、运行态接口
+- 面向 OpenClaw 的 REST / WS 聚合层
+- `status / tasks stats / tasks runtime / diagnostics`
+- WebSocket 实时状态流
+- dev / prod 双地址分离
+- Nginx 分流与缓存策略
+- 一键部署 / 巡检脚本
 
-接下来优先做的不是继续堆视觉，而是：
+---
 
-1. 去 mock，全面接真实 runtime
-2. 补最小控制闭环（查看 / 派发 / 停止 / 重试）
-3. 建立地图 + 详情 + 时间线三层结构
-4. 做真实用户验证
+## 实时连接检查
 
-## 文档
-
-- `docs/PRODUCT-ROADMAP-4W.md`：4 周产品路线图
-- `docs/ARCHITECTURE-NEXT.md`：下一阶段架构与设计方案
-- `docs/WEEK1-BUILD-LIST.md`：第 1 周执行清单
-- `docs/NEXT_STEPS_2026-03-13.md`：当前状态与下一步清单
-- `docs/NGINX_PROD_ROUTING_2026-03-13.md`：生产路由与缓存建议
-- `docs/ARCHITECTURE_CURRENT_2026-03-13.md`：当前模式与请求流正式说明
-- `docs/GITHUB_UPLOAD_CHECKLIST_2026-03-13.md`：GitHub 上传前检查清单
-
-## 巡检
-
-- 一键巡检脚本：`scripts/check-live-health.sh`
-- 生产验收脚本：`scripts/prod-acceptance.sh`
-- 一键部署+巡检脚本：`scripts/deploy-frontend-prod.sh`
-- 开发预览启动脚本：`scripts/run-frontend-dev.sh`
-- 开发预览停止脚本：`scripts/stop-frontend-dev.sh`
-
-## 运行模式
-
-当前建议采用双模式：
-
-- 开发模式：前端源码直跑，适合快速修改
-- 生产模式：轻构建静态产物 + Node 动态聚合
-
-当前地址区分：
-
-- 生产：`https://www.wangyuye.online/open-pokemon-claw/`
-- 开发预览：`https://www.wangyuye.online/open-pokemon-claw-dev/`
-
-其中生产模式下：
-
-- `frontend/dist/` 提供压缩后的静态资源
-- `frontend/server.js` 继续负责 API 和 WebSocket 聚合
-- `scripts/run-frontend-prod.sh` 会自动先构建再启动
-
-如果你希望确认页面确实保持了实时连接，而不是只靠 HTTP 轮询：
-
-1. 打开 `https://www.wangyuye.online/open-pokemon-claw/`
-2. 检查：
+如果你想确认页面当前是否真的保持了实时连接，而不是只靠 HTTP：
 
 ```bash
 curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
 ```
 
 正常情况下，这个值应大于 `0`。
+
+---
+
+## 推荐阅读
+
+- `docs/ARCHITECTURE_CURRENT_2026-03-13.md`：当前模式与请求流
+- `docs/NGINX_PROD_ROUTING_2026-03-13.md`：Nginx 路由与缓存策略
+- `docs/NEXT_STEPS_2026-03-13.md`：当前待办
+- `docs/PRODUCT_DEFINITION.md`：产品定义
+- `docs/PROD_ACCEPTANCE.md`：生产验收记录
+
+---
+
+## 当前阶段判断
+
+现在它已经不是单纯 demo，而是：
+
+> 一个已经具备实时链路、双模式运行、部署脚本和巡检闭环的 OpenClaw 运行舱雏形。
+
+下一阶段重点不是继续堆视觉，而是：
+
+1. 收口信息层级
+2. 强化最小控制闭环
+3. 做真实用户验证
+4. 继续降低长期运行成本

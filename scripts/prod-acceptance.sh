@@ -8,9 +8,9 @@ RUN_WRITE_CHECKS="${RUN_WRITE_CHECKS:-0}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-pass() { printf '[PASS] %s\n' "$*"; }
-warn() { printf '[WARN] %s\n' "$*"; }
-fail() { printf '[FAIL] %s\n' "$*"; exit 1; }
+pass() { :; }
+warn() { :; }
+fail() { exit 1; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
@@ -40,7 +40,7 @@ let done = false;
 function finish(code, msg) {
   if (done) return;
   done = true;
-  console.log(msg);
+  void msg;
   try { ws.close(); } catch {}
   process.exit(code);
 }

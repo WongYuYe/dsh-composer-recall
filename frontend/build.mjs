@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const distDir = path.join(__dirname, 'dist');
 
 const staticCopies = [
+  'assets/phaser',
   'vendor/phaser.min.js',
   'openclaw.config.js',
   'docs/preview.png',
@@ -33,8 +34,16 @@ async function cleanDir(dir) {
   await ensureDir(dir);
 }
 
-async function copyFileToDist(relPath) {
+async function copyPathToDist(relPath) {
   const src = path.join(__dirname, relPath);
+  const stats = await fs.stat(src);
+
+  if (stats.isDirectory()) {
+    const entries = await fs.readdir(src, { withFileTypes: true });
+    await Promise.all(entries.map((entry) => copyPathToDist(path.join(relPath, entry.name))));
+    return;
+  }
+
   const dest = path.join(distDir, relPath);
   await ensureDir(path.dirname(dest));
   await fs.copyFile(src, dest);
@@ -67,11 +76,20 @@ function minifyHtml(html) {
     .trim();
 }
 
-async function buildIndex(replacements) {
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceVersionedAssetReference(html, sourcePath, builtPath) {
+  const pattern = new RegExp(`${escapeRegExp(sourcePath)}(?:\\?[^"'\\s>]*)?`, 'g');
+  return html.replace(pattern, builtPath);
+}
+
+async function buildIndex({ stylesCss, phaserMapJs, appJs }) {
   let html = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
-  for (const [from, to] of Object.entries(replacements)) {
-    html = html.split(from).join(to);
-  }
+  html = html.replaceAll('./styles.css', stylesCss);
+  html = replaceVersionedAssetReference(html, './phaser-map.js', phaserMapJs);
+  html = replaceVersionedAssetReference(html, './app.js', appJs);
   html = minifyHtml(html);
   await fs.writeFile(path.join(distDir, 'index.html'), html, 'utf8');
 }
@@ -83,19 +101,10 @@ async function main() {
   const stylesCss = await buildAsset('styles.css', 'css');
 
   for (const file of staticCopies) {
-    await copyFileToDist(file);
+    await copyPathToDist(file);
   }
 
-  await buildIndex({
-    './styles.css': stylesCss,
-    './phaser-map.js?v=20260312-1': phaserMapJs,
-    './app.js?v=20260312-wsfix': appJs,
-  });
-
-  console.log(`Built frontend to ${distDir}`);
+  await buildIndex({ stylesCss, phaserMapJs, appJs });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+await main();

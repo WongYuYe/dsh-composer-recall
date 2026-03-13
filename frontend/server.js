@@ -7,9 +7,24 @@ const { WebSocketServer } = require("ws");
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3008);
 const DEFAULT_STATIC_ROOT = path.join(__dirname, "dist");
-const WEB_ROOT = process.env.OPENCLAW_STATIC_ROOT
-  ? path.resolve(process.env.OPENCLAW_STATIC_ROOT)
-  : (fs.existsSync(DEFAULT_STATIC_ROOT) ? DEFAULT_STATIC_ROOT : __dirname);
+function resolveStaticRoot() {
+  const configuredRoot = String(process.env.OPENCLAW_STATIC_ROOT || "").trim();
+  if (configuredRoot) {
+    if (configuredRoot === "source") {
+      return __dirname;
+    }
+
+    if (configuredRoot === "dist") {
+      return DEFAULT_STATIC_ROOT;
+    }
+
+    return path.isAbsolute(configuredRoot)
+      ? configuredRoot
+      : path.resolve(__dirname, configuredRoot);
+  }
+
+  return fs.existsSync(DEFAULT_STATIC_ROOT) ? DEFAULT_STATIC_ROOT : __dirname;
+}
 const ROBOT_NAME = "小龙虾";
 
 function readApiKeyFromDotenv(filePath) {
@@ -56,9 +71,15 @@ const STATUS_TIMEOUT_MS = Number(process.env.OPENCLAW_STATUS_TIMEOUT_MS || 12000
 const STATUS_POLL_INTERVAL_MS = Number(process.env.OPENCLAW_STATUS_POLL_INTERVAL_MS || 15000);
 const STATUS_REFRESH_DEBOUNCE_MS = Number(process.env.OPENCLAW_STATUS_REFRESH_DEBOUNCE_MS || 300);
 const STATUS_REFRESH_MIN_INTERVAL_MS = Number(process.env.OPENCLAW_STATUS_REFRESH_MIN_INTERVAL_MS || 5000);
-const STATUS_URL = process.env.OPENCLAW_STATUS_URL || "";
-const TASK_STATS_URL = process.env.OPENCLAW_TASK_STATS_URL || "";
-const TASK_RUNTIME_URL = process.env.OPENCLAW_TASK_RUNTIME_URL || "";
+const DEFAULT_UPSTREAM_BASE_URL = "https://www.wangyuye.online/pokemon-claw";
+const UPSTREAM_BASE_URL = String(process.env.OPENCLAW_UPSTREAM_BASE_URL || DEFAULT_UPSTREAM_BASE_URL)
+  .trim()
+  .replace(/\/+$/, "");
+const STATUS_URL = process.env.OPENCLAW_STATUS_URL || `${UPSTREAM_BASE_URL}/api/openclaw/status`;
+const TASK_STATS_URL = process.env.OPENCLAW_TASK_STATS_URL || `${UPSTREAM_BASE_URL}/api/tasks/stats`;
+const TASK_RUNTIME_URL = process.env.OPENCLAW_TASK_RUNTIME_URL || `${UPSTREAM_BASE_URL}/api/tasks/runtime`;
+const TASK_ACTION_BASE_URL = process.env.OPENCLAW_TASK_ACTION_BASE_URL || UPSTREAM_BASE_URL;
+const AGENT_TURN_URL = process.env.OPENCLAW_AGENT_TURN_URL || `${UPSTREAM_BASE_URL}/api/openclaw/agent/turn`;
 const TASK_STATS_TIMEOUT_MS = Number(process.env.OPENCLAW_TASK_STATS_TIMEOUT_MS || 5000);
 const TASK_RUNTIME_TIMEOUT_MS = Number(process.env.OPENCLAW_TASK_RUNTIME_TIMEOUT_MS || TASK_STATS_TIMEOUT_MS);
 const AGENT_TURN_TIMEOUT_MS = Number(process.env.OPENCLAW_AGENT_TURN_TIMEOUT_MS || 30000);
@@ -171,6 +192,27 @@ function getTaskEndpointCandidates(explicitUrl, pathname) {
   return [`http://127.0.0.1:8787${pathname}`];
 }
 
+function deriveBaseUrlFromEndpoint(endpoint, expectedPathname) {
+  const value = String(endpoint || "").trim();
+  if (!value || !/^https?:\/\//i.test(value)) {
+    return "";
+  }
+
+  const normalized = value.replace(/\/+$/, "");
+  return normalized.endsWith(expectedPathname)
+    ? normalized.slice(0, -expectedPathname.length)
+    : "";
+}
+
+function joinBaseUrlAndPath(baseUrl, pathname) {
+  const normalizedBase = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!normalizedBase) {
+    return "";
+  }
+
+  return `${normalizedBase}${pathname}`;
+}
+
 function getStatusEndpointCandidates() {
   const fromEnv = String(STATUS_URL || "")
     .split(",")
@@ -266,7 +308,11 @@ async function postJsonToCandidates(candidates, timeoutMs, body = {}) {
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          lastError = new Error(payload?.error || payload?.message || `HTTP ${response.status} from ${url}`);
+          lastError = new Error(
+            [payload?.error || payload?.message || `HTTP ${response.status} from ${url}`, payload?.detail]
+              .filter(Boolean)
+              .join(": ")
+          );
           continue;
         }
 
@@ -295,43 +341,39 @@ function getTaskRuntimeCandidates() {
 }
 
 function getTaskActionCandidates(taskId, action) {
-  return getTaskEndpointCandidates("", `/api/tasks/${encodeURIComponent(taskId)}/${action}`);
+  const pathname = `/api/tasks/${encodeURIComponent(taskId)}/${action}`;
+  const derivedBaseUrl =
+    deriveBaseUrlFromEndpoint(TASK_RUNTIME_URL, "/api/tasks/runtime") ||
+    deriveBaseUrlFromEndpoint(TASK_STATS_URL, "/api/tasks/stats") ||
+    deriveBaseUrlFromEndpoint(STATUS_URL, "/api/openclaw/status");
+
+  if (TASK_ACTION_BASE_URL || derivedBaseUrl) {
+    return [joinBaseUrlAndPath(TASK_ACTION_BASE_URL || derivedBaseUrl, pathname)];
+  }
+
+  return getTaskEndpointCandidates("", pathname);
 }
 
 function getAgentTurnCandidates() {
-  return ['http://127.0.0.1:8787/api/openclaw/agent/turn'];
+  const pathname = "/api/openclaw/agent/turn";
+  const derivedBaseUrl =
+    deriveBaseUrlFromEndpoint(STATUS_URL, "/api/openclaw/status") ||
+    deriveBaseUrlFromEndpoint(TASK_RUNTIME_URL, "/api/tasks/runtime") ||
+    deriveBaseUrlFromEndpoint(TASK_STATS_URL, "/api/tasks/stats");
+
+  if (AGENT_TURN_URL) {
+    return [String(AGENT_TURN_URL).trim()];
+  }
+
+  if (derivedBaseUrl) {
+    return [joinBaseUrlAndPath(derivedBaseUrl, pathname)];
+  }
+
+  return ["http://127.0.0.1:8787/api/openclaw/agent/turn"];
 }
 
 async function postAgentTurn(body = {}) {
-  let lastError = null;
-  for (const url of getAgentTurnCandidates()) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AGENT_TURN_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        cache: 'no-store',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        lastError = new Error(payload?.error || payload?.message || `HTTP ${response.status} from ${url}`);
-        continue;
-      }
-      return payload;
-    } catch (error) {
-      lastError = error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-  if (lastError) throw lastError;
-  throw new Error('No upstream candidates configured.');
+  return postJsonToCandidates(getAgentTurnCandidates(), AGENT_TURN_TIMEOUT_MS, body);
 }
 
 function deriveTaskStatsFromPayload(payload) {
@@ -1677,10 +1719,13 @@ function taskRuntimeResponseBody(taskRuntime) {
 }
 
 function serveStaticFile(reqPath, res, req = null) {
+  const webRoot = path.resolve(resolveStaticRoot());
   const cleanPath = reqPath === "/" ? "/index.html" : reqPath;
-  const absolutePath = path.join(WEB_ROOT, path.normalize(cleanPath));
+  const relativePath = cleanPath.replace(/^\/+/, "");
+  const absolutePath = path.resolve(webRoot, relativePath);
+  const rootRelativePath = path.relative(webRoot, absolutePath);
 
-  if (!absolutePath.startsWith(WEB_ROOT)) {
+  if (rootRelativePath.startsWith("..") || path.isAbsolute(rootRelativePath)) {
     sendJson(res, 403, { error: "Forbidden" });
     return;
   }
@@ -1708,7 +1753,7 @@ function serveStaticFile(reqPath, res, req = null) {
       const lastModified = stats.mtime.toUTCString();
       const isHtml = ext === ".html";
       const cacheControl = isHtml
-        ? "public, max-age=60, stale-while-revalidate=300"
+        ? "no-store"
         : "public, max-age=604800, immutable";
 
       const ifNoneMatch = req?.headers?.["if-none-match"];
@@ -1965,13 +2010,11 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", (code, reason) => {
-    const detail = `ws#${ws.connectionId} closed code=${code} reason=${String(reason || "")} clients=${wss.clients.size} alive_ms=${Date.now() - ws.connectedAt}`;
-    console.log(`[openclaw_show] ${detail}`);
+    void code;
+    void reason;
   });
 
-  ws.on("error", (error) => {
-    console.log(`[openclaw_show] ws#${ws.connectionId} error: ${error?.message || "unknown"}`);
-  });
+  ws.on("error", () => {});
 
   ws.on("message", (raw) => {
     try {
@@ -1986,7 +2029,7 @@ wss.on("connection", (ws, req) => {
 
   const url = req._openclawParsedUrl || new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
   const lastEventId = url.searchParams.get("lastEventId");
-  console.log(`[openclaw_show] ws#${ws.connectionId} connected lastEventId=${lastEventId || ""} clients=${wss.clients.size}`);
+  void lastEventId;
 
   sendWs(ws, {
     type: "hello",
@@ -2035,12 +2078,4 @@ pollTimer.unref?.();
 wsPingTimer.unref?.();
 
 
-server.listen(PORT, HOST, () => {
-  console.log(`[openclaw_show] server running at http://${HOST}:${PORT}`);
-  console.log(`[openclaw_show] status endpoint: http://${HOST}:${PORT}/api/openclaw/status`);
-  console.log(`[openclaw_show] websocket endpoint: ws://${HOST}:${PORT}${WS_PATH}`);
-  console.log(`[openclaw_show] poll interval: ${STATUS_POLL_INTERVAL_MS}ms`);
-  console.log(`[openclaw_show] debounce/min interval: ${STATUS_REFRESH_DEBOUNCE_MS}/${STATUS_REFRESH_MIN_INTERVAL_MS}ms`);
-  console.log(`[openclaw_show] event replay buffer: ${EVENT_BUFFER_SIZE}`);
-  console.log(`[openclaw_show] CORS origin: ${CORS_ORIGIN}`);
-});
+server.listen(PORT, HOST);

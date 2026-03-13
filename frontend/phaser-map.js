@@ -1175,12 +1175,27 @@
       this.currentView = "town";
       this.currentZone = activeZone || "";
 
-      const map = this.make.tilemap({ key: "openclaw-town" });
-      const tileset = map.addTilesetImage("tuxemon-sample-32px-extruded", "openclaw-tiles");
-      const below = map.createLayer("Below Player", tileset, 0, 0).setDepth(1);
-      const world = map.createLayer("World", tileset, 0, 0).setDepth(2);
-      const above = map.createLayer("Above Player", tileset, 0, 0).setDepth(60);
-      this.currentObjects.push(below, world, above);
+      const map = this.cache.tilemap.exists("openclaw-town")
+        ? this.make.tilemap({ key: "openclaw-town" })
+        : null;
+      const tileset = map
+        ? map.addTilesetImage("tuxemon-sample-32px-extruded", "openclaw-tiles")
+        : null;
+      const townLayers = tileset
+        ? [
+            [map.createLayer("Below Player", tileset, 0, 0), 1],
+            [map.createLayer("World", tileset, 0, 0), 2],
+            [map.createLayer("Above Player", tileset, 0, 0), 60],
+          ]
+            .map(([layer, depth]) => (layer ? layer.setDepth(depth) : null))
+            .filter(Boolean)
+        : [];
+
+      if (townLayers.length > 0) {
+        this.currentObjects.push(...townLayers);
+      } else {
+        this.addTownFallbackBackdrop();
+      }
 
       const zoneOverlay = this.add.graphics().setDepth(40);
       if (activeZone && TOWN_ZONE_RECTS[activeZone]) {
@@ -1211,6 +1226,20 @@
       this.cameras.main.setZoom(0.82);
       this.cameras.main.centerOn(TOWN_WORLD_SIZE / 2, TOWN_WORLD_SIZE / 2);
       this.cameras.main.setRoundPixels(true);
+    }
+
+    addTownFallbackBackdrop() {
+      const backdrop = this.add.rectangle(TOWN_WORLD_SIZE / 2, TOWN_WORLD_SIZE / 2, TOWN_WORLD_SIZE, TOWN_WORLD_SIZE, 0x203743, 1)
+        .setDepth(1);
+      const grid = this.add.graphics().setDepth(2);
+
+      grid.lineStyle(1, 0x3c5966, 0.22);
+      for (let offset = 0; offset <= TOWN_WORLD_SIZE; offset += TILE_SIZE) {
+        grid.lineBetween(offset, 0, offset, TOWN_WORLD_SIZE);
+        grid.lineBetween(0, offset, TOWN_WORLD_SIZE, offset);
+      }
+
+      this.currentObjects.push(backdrop, grid);
     }
 
     drawTownAlarmHouse() {

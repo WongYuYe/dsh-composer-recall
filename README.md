@@ -1,150 +1,74 @@
 # pokemon-claw
 
-一个面向 OpenClaw 的可视化运行舱项目。
+`pokemon-claw` 是一个面向 OpenClaw 的本地可视化面板。
 
-它当前的目标不是做一个“全功能后台”，而是做一个：
+它分成两层：
 
-- 可长期挂页的运行舱
-- 有实时状态流的 dashboard
-- 具备最小控制闭环（如 retry / resolve / agent turn）的操作界面
+- `frontend/`：本地页面、静态资源服务、上游接口聚合
+- `backend/`：本地 `openclaw` CLI 的 Fastify 包装层
 
----
+当前默认运行方式是：
+
+- 页面在本地启动
+- 数据默认读取远程上游 `https://www.wangyuye.online/pokemon-claw`
+- 如果你本机装好了 `openclaw`，也可以切回本地后端模式
 
 ## 仓库结构
 
 ```text
 .
-├── frontend/   # 页面 + Node 聚合服务
-├── backend/    # 上游后端代码与接口实现
-├── scripts/    # 运行、部署、巡检脚本
-└── docs/       # 产品、架构、验收与运维文档
+|-- frontend/
+|-- backend/
+|-- docs/
+`-- scripts/
 ```
 
----
+## 快速启动
 
-## 当前运行模式
-
-项目当前采用双模式：
-
-### 1. 开发模式
-适合快速改 UI、联调、排障。
-
-- 前端源码直跑
-- 不走生产构建产物
-- 更适合本地调试和开发预览
-
-启动：
-
-```bash
-bash scripts/run-pokemon-claw-dev.sh
-```
-
-开发预览地址：
-
-- `https://www.wangyuye.online/pokemon-claw-dev/`
-
-### 2. 生产模式
-适合正式访问、长期挂页和公网演示。
-
-- 先做轻构建
-- 再由 Node 提供 `dist/` 静态产物
-- Node 继续负责 API 和 WebSocket 动态聚合
-
-启动：
-
-```bash
-bash scripts/run-pokemon-claw-prod.sh
-```
-
-生产地址：
-
-- `https://www.wangyuye.online/pokemon-claw/`
-
----
-
-## 常用命令
-
-### 前端开发预览
-
-```bash
-bash scripts/run-pokemon-claw-dev.sh
-bash scripts/stop-pokemon-claw-dev.sh
-```
-
-### 前端生产启动 / 停止
-
-```bash
-bash scripts/run-pokemon-claw-prod.sh
-bash scripts/stop-pokemon-claw-prod.sh
-```
-
-### 前端一键部署 + 巡检
-
-```bash
-bash scripts/deploy-pokemon-claw-prod.sh
-```
-
-### 公网健康检查
-
-```bash
-bash scripts/check-live-health.sh
-```
-
-### 前端单独构建
+只跑前端：
 
 ```bash
 cd frontend
 npm install
-npm run build
+npm start
 ```
 
----
+打开：
 
-## 当前能力
+- `http://127.0.0.1:3008/`
 
-目前项目已经具备：
+说明：
 
-- 像素地图前端雏形
-- 面向 OpenClaw 的 REST / WS 聚合层
-- `status / tasks stats / tasks runtime / diagnostics`
-- WebSocket 实时状态流
-- dev / prod 双地址分离
-- Nginx 分流与缓存策略
-- 一键部署 / 巡检脚本
+- `npm start` 会先构建 `dist/`，再启动本地服务
+- 默认读取远程上游，所以不依赖本机安装 `openclaw`
 
----
+## 切换到本地后端模式
 
-## 实时连接检查
+1. 先启动后端
+2. 再让前端指向 `http://127.0.0.1:8787`
 
-如果你想确认页面当前是否真的保持了实时连接，而不是只靠 HTTP：
+示意：
 
 ```bash
-curl -fsS https://www.wangyuye.online/pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
+cd backend
+npm install
+npm start
 ```
 
-正常情况下，这个值应大于 `0`。
+然后启动前端前设置：
 
----
+```bash
+OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
+```
 
-## 推荐阅读
+## 当前约束
 
-- `docs/ARCHITECTURE_CURRENT_2026-03-13.md`：当前模式与请求流
-- `docs/NGINX_PROD_ROUTING_2026-03-13.md`：Nginx 路由与缓存策略
-- `docs/NEXT_STEPS_2026-03-13.md`：当前待办
-- `docs/PRODUCT_DEFINITION.md`：产品定义
-- `docs/PROD_ACCEPTANCE.md`：生产验收记录
+- 项目中不写运行日志文件
+- README 保持简短，只写当前真实可用的信息
+- 前端默认以构建产物运行，避免源码模式和 `dist` 模式漂移
 
----
+## 进一步说明
 
-## 当前阶段判断
-
-现在它已经不是单纯 demo，而是：
-
-> 一个已经具备实时链路、双模式运行、部署脚本和巡检闭环的 OpenClaw 运行舱雏形。
-
-下一阶段重点不是继续堆视觉，而是：
-
-1. 收口信息层级
-2. 强化最小控制闭环
-3. 做真实用户验证
-4. 继续降低长期运行成本
+- 前端说明见 [frontend/README.md](/D:/Code/pokemon-claw/frontend/README.md)
+- 后端说明见 [backend/README.md](/D:/Code/pokemon-claw/backend/README.md)
+- 当前架构说明见 [docs/ARCHITECTURE_CURRENT_2026-03-13.md](/D:/Code/pokemon-claw/docs/ARCHITECTURE_CURRENT_2026-03-13.md)

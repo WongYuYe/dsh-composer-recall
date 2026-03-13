@@ -5,7 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import { runOpenClaw } from './openclaw.js';
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: false });
 let manualStateOverride = null;
 let wsConnectionSeq = 0;
 let wsEventSeq = 0;
@@ -41,7 +41,6 @@ const cfg = {
 };
 
 if (cfg.requireApiKey && !cfg.apiKey) {
-  app.log.error('API_KEY is required when REQUIRE_API_KEY=true');
   process.exit(1);
 }
 
@@ -835,7 +834,6 @@ app.get('/ws/openclaw/status', { websocket: true }, (socket) => {
   broadcastVisualStatus('connect').catch((error) => {
     wsMetrics.totalErrors += 1;
     wsMetrics.lastError = String(error?.message || error);
-    app.log.error(error, 'failed to send websocket connect snapshot');
   });
 
   socket.on('close', () => {
@@ -846,7 +844,6 @@ app.get('/ws/openclaw/status', { websocket: true }, (socket) => {
   socket.on('error', (error) => {
     wsMetrics.totalErrors += 1;
     wsMetrics.lastError = String(error?.message || error);
-    app.log.warn({ error, connectionId }, 'websocket client error');
   });
 });
 
@@ -854,7 +851,6 @@ setInterval(() => {
   broadcastVisualStatus('interval').catch((error) => {
     wsMetrics.totalErrors += 1;
     wsMetrics.lastError = String(error?.message || error);
-    app.log.error(error, 'failed to broadcast websocket status');
   });
 }, cfg.wsStatusIntervalMs).unref();
 
@@ -934,8 +930,7 @@ app.post('/api/openclaw/exec', async (req, reply) => {
 });
 
 app.listen({ port: cfg.port, host: cfg.host })
-  .then(() => app.log.info(`API listening on http://${cfg.host}:${cfg.port}`))
   .catch((err) => {
-    app.log.error(err);
+    void err;
     process.exit(1);
   });

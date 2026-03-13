@@ -5,8 +5,8 @@ BASE_URL="${1:-https://www.wangyuye.online/pokemon-claw}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-pass() { printf '[PASS] %s\n' "$*"; }
-fail() { printf '[FAIL] %s\n' "$*"; exit 1; }
+pass() { :; }
+fail() { exit 1; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
@@ -47,29 +47,21 @@ const req = https.request({
     Origin: base.origin,
   },
 }, (res) => {
-  console.error(`[FAIL] websocket returned HTTP ${res.statusCode}`);
   process.exit(1);
 });
 req.on('upgrade', (res, socket) => {
-  console.log('[PASS] websocket handshake ok');
   socket.once('data', () => {
-    console.log('[PASS] websocket first frame received');
     socket.end();
     process.exit(0);
   });
   socket.setTimeout(8000, () => {
-    console.error('[FAIL] websocket frame timeout');
     socket.destroy();
     process.exit(1);
   });
 });
 req.on('error', (err) => {
-  console.error(`[FAIL] websocket error: ${err.message}`);
+  void err;
   process.exit(1);
 });
 req.end();
 NODE
-
-printf '\nCurrent summary:\n'
-curl -fsS "$BASE_URL/api/openclaw/status" | jq '{zone, mode, alertLevel, wsPath: ._meta.wsPath}'
-curl -fsS "$BASE_URL/api/tasks/runtime" | jq '.data.queueSummary'

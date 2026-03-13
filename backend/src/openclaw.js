@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { extname } from 'node:path';
 
 function buildArgs(args, profile) {
   const out = [];
@@ -49,25 +50,61 @@ function parsePossiblyPrefixedJson(stdout) {
 
 export async function runOpenClaw({ bin = 'openclaw', profile = '', args = [] }) {
   const finalArgs = buildArgs(args, profile);
+  const extension = extname(String(bin || '')).toLowerCase();
+  const shouldInvokeWithNode = ['.js', '.mjs', '.cjs'].includes(extension);
+  const command = shouldInvokeWithNode ? process.execPath : bin;
+  const spawnArgs = shouldInvokeWithNode ? [bin, ...finalArgs] : finalArgs;
+  const commandDisplay = [command, ...spawnArgs].join(' ');
 
   return await new Promise((resolve) => {
-    const p = spawn(bin, finalArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const finish = (payload) => {
+      if (settled) return;
+      settled = true;
+      resolve(payload);
+    };
+
+    let p;
+    try {
+      p = spawn(command, spawnArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      finish({
+        ok: false,
+        code: null,
+        stdout,
+        stderr: String(error?.message || error),
+        data: null,
+        command: commandDisplay,
+      });
+      return;
+    }
 
     p.stdout.on('data', (d) => (stdout += d.toString()));
     p.stderr.on('data', (d) => (stderr += d.toString()));
+    p.on('error', (error) => {
+      finish({
+        ok: false,
+        code: null,
+        stdout,
+        stderr: String(error?.message || error),
+        data: null,
+        command: commandDisplay,
+      });
+    });
 
     p.on('close', (code) => {
       const parsed = parsePossiblyPrefixedJson(stdout);
 
-      resolve({
+      finish({
         ok: code === 0,
         code,
         stdout,
         stderr,
         data: parsed,
-        command: [bin, ...finalArgs].join(' '),
+        command: commandDisplay,
       });
     });
   });

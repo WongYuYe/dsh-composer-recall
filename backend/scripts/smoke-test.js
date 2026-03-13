@@ -80,34 +80,70 @@ async function openWs(url) {
   });
 }
 
-async function waitForWsMessage(ws, predicate, label) {
-  return await new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for websocket ${label}`));
-    }, 8_000);
+function createWsRecorder(ws) {
+  const buffered = [];
+  const waiters = new Set();
 
-    const onMessage = (event) => {
-      const payload = JSON.parse(String(event.data));
-      if (!predicate(payload)) return;
-      cleanup();
-      resolve(payload);
-    };
+  const onMessage = (event) => {
+    const payload = JSON.parse(String(event.data));
 
-    const onError = () => {
-      cleanup();
-      reject(new Error('WebSocket connection failed'));
-    };
+    for (const waiter of waiters) {
+      if (!waiter.predicate(payload)) {
+        continue;
+      }
 
-    function cleanup() {
-      clearTimeout(timeoutId);
-      ws.removeEventListener('message', onMessage);
-      ws.removeEventListener('error', onError);
+      clearTimeout(waiter.timeoutId);
+      waiters.delete(waiter);
+      waiter.resolve(payload);
+      return;
     }
 
-    ws.addEventListener('message', onMessage);
-    ws.addEventListener('error', onError, { once: true });
-  });
+    buffered.push(payload);
+  };
+
+  const onError = () => {
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timeoutId);
+      waiter.reject(new Error('WebSocket connection failed'));
+    }
+    waiters.clear();
+  };
+
+  ws.addEventListener('message', onMessage);
+  ws.addEventListener('error', onError);
+
+  return {
+    async waitFor(predicate, label) {
+      const existingIndex = buffered.findIndex(predicate);
+      if (existingIndex >= 0) {
+        const [payload] = buffered.splice(existingIndex, 1);
+        return payload;
+      }
+
+      return await new Promise((resolve, reject) => {
+        const waiter = {
+          predicate,
+          resolve,
+          reject,
+          timeoutId: setTimeout(() => {
+            waiters.delete(waiter);
+            reject(new Error(`Timed out waiting for websocket ${label}`));
+          }, 8_000),
+        };
+
+        waiters.add(waiter);
+      });
+    },
+    close() {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeoutId);
+        waiter.reject(new Error('WebSocket recorder closed'));
+      }
+      waiters.clear();
+      ws.removeEventListener('message', onMessage);
+      ws.removeEventListener('error', onError);
+    },
+  };
 }
 
 async function main() {
@@ -209,12 +245,13 @@ async function main() {
     assert.equal(diagnosticsPayload.data.ws.totalConnections, 0);
 
     const ws = await openWs(`ws://127.0.0.1:${port}/ws/openclaw/status?apiKey=${apiKey}`);
+    const recorder = createWsRecorder(ws);
     try {
-      const helloPayload = await waitForWsMessage(ws, (payload) => payload.type === 'hello', 'hello');
+      const helloPayload = await recorder.waitFor((payload) => payload.type === 'hello', 'hello');
       assert.equal(helloPayload.type, 'hello');
       assert.ok(helloPayload.connectionId >= 1);
 
-      const snapshotPayload = await waitForWsMessage(ws, (payload) => payload.type === 'status' && payload.mode === 'snapshot', 'snapshot');
+      const snapshotPayload = await recorder.waitFor((payload) => payload.type === 'status' && payload.mode === 'snapshot', 'snapshot');
       assert.equal(snapshotPayload.data.zone, 'rest');
       assert.equal(snapshotPayload.data.openclaw.tasks.totalCronJobs, 2);
       assert.match(String(snapshotPayload.eventId || ''), /^evt-/);
@@ -229,11 +266,12 @@ async function main() {
       });
       assert.equal(debugResponse.status, 200);
 
-      const patchPayload = await waitForWsMessage(ws, (payload) => payload.type === 'status' && payload.mode === 'patch', 'patch');
+      const patchPayload = await recorder.waitFor((payload) => payload.type === 'status' && payload.mode === 'patch', 'patch');
       assert.equal(patchPayload.patch.zone, 'alarm');
       assert.equal(patchPayload.patch.alertLevel, 'RED');
       assert.equal(patchPayload.baseEventId, snapshotPayload.eventId);
     } finally {
+      recorder.close();
       ws.close();
     }
 
@@ -264,7 +302,6 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
+main().catch(() => {
   process.exitCode = 1;
 });

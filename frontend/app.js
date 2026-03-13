@@ -369,6 +369,33 @@ function formatEtaLabel(value) {
   return remainSeconds > 0 ? `${minutes} 分 ${remainSeconds} 秒` : `${minutes} 分钟`;
 }
 
+function formatPercent(value) {
+  const numeric = safeNumber(value);
+  if (numeric === null) {
+    return "--";
+  }
+
+  return String(Math.round(numeric));
+}
+
+function formatTemperature(value) {
+  const numeric = safeNumber(value);
+  if (numeric === null) {
+    return "--";
+  }
+
+  return String(Math.round(numeric));
+}
+
+function formatTaskCount(value) {
+  const numeric = safeNumber(value);
+  if (numeric === null) {
+    return "--";
+  }
+
+  return String(Math.max(0, Math.round(numeric)));
+}
+
 function normalizeTaskStatsPayload(payload) {
   const root = payload?.data || payload?.stats || payload;
   if (!root || typeof root !== "object") {
@@ -734,6 +761,7 @@ function formatIdleActivitySentence(label) {
 }
 
 function resolveFrontEndRestAnimation(runtime) {
+  const focusedAgent = { id: focusedAgentId || "main" };
   const queued = safeNumber(runtime?.queueSummary?.queued) || 0;
   if (queued > 0) {
     return {
@@ -780,6 +808,7 @@ function translateSessionKey(value) {
 
 function translateIncomingText(value) {
   const raw = String(value || "").trim();
+  const focusedAgent = { id: focusedAgentId || "main" };
   if (!raw) {
     return "";
   }
@@ -1343,6 +1372,7 @@ function normalizeStatus(payload) {
           : null,
       }))
     : [];
+  const focusedAgent = agents.find((agent) => agent.id === focusedAgentId) || agents[0] || { id: focusedAgentId || "main" };
   const explicitZone = normalizeZone(firstDefined(root.zone, root.currentZone, root.area, payload.zone, payload.currentZone));
   const runtimeZone = runtime
     ? (runtime.queueSummary?.failed || 0) > 0

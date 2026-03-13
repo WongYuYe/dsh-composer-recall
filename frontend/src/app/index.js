@@ -1,0 +1,2462 @@
+import {
+  CONFIG,
+  DEMO_STEP_DURATION_MS,
+  LOGICAL_MAP_HEIGHT,
+  LOGICAL_MAP_WIDTH,
+  MAP_HEIGHT,
+  MAP_RENDER_SCALE,
+  MAP_WIDTH,
+  MAX_FEED_ITEMS,
+  REST_ANIMATION_CYCLE_MS,
+  REST_ROOM_PHASE_MS,
+  ROBOT_DISPLAY_NAME,
+  alertLabels,
+  demoAlertEnabled,
+  idleActivityLabels,
+  modeLabels,
+  refs,
+  sceneLabels,
+  syncBadgeLabels,
+  useDemo,
+  useMock,
+  zoneAnchors,
+  zoneLabels,
+  zoneRenderBounds,
+} from "./runtime-config.js";
+import {
+  applyMergePatch,
+  clamp,
+  cloneJson,
+  firstDefined,
+  formatClock,
+  formatEtaLabel,
+  formatPercent,
+  formatShortTime,
+  formatTaskCount,
+  formatTemperature,
+  normalizeEventCursor,
+  pad2,
+  safeNumber,
+} from "./shared.js";
+import { buildMapData, toRenderedPosition } from "./map-fallback.js";
+
+let tileRefs = [];
+let robotTiles = new Map();
+let alertLightTiles = [];
+let lastStateSignature = "";
+let lastSuccessfulState = null;
+let lastRenderedState = null;
+let connectionState = "offline";
+let websocket = null;
+let reconnectTimer = 0;
+let pollTimer = 0;
+let pollActive = false;
+let lastRobotSignature = "";
+let lastFeedSignature = "";
+let taskActionInFlight = "";
+let taskActionMessage = "";
+let rawStatusCache = null;
+let lastEventId = "";
+let wsCloseHint = "";
+let mapViewportRaf = 0;
+let latestTaskStats = null;
+let lastTaskStatsSignature = "";
+let taskStatsRefreshPromise = null;
+let latestTaskRuntime = null;
+let lastTaskRuntimeSignature = "";
+let taskRuntimeRefreshPromise = null;
+let demoTimer = 0;
+let restAnimationTimer = 0;
+let lastAgentSignature = "";
+let selectedAgentId = "";
+let agentTaskInFlight = false;
+let latestAgentReply = "";
+let wsFailureCount = 0;
+let focusedAgentId = 'main';
+let wsConnectedOnce = false;
+let viewMode = "map";
+let lastAcceptanceResults = [];
+let feedItems = [
+  {
+    zone: "system",
+    time: new Date().toISOString(),
+    message: `等待后端返回 ${ROBOT_DISPLAY_NAME} 当前 zone、position、task 和 alertLevel。`,
+  },
+];
+
+function buildHttpUrl(forceRefresh = false) {
+  const url = new URL(CONFIG.endpoint, window.location.href);
+
+  if (forceRefresh) {
+    url.searchParams.set("refresh", "1");
+  }
+
+  return url.toString();
+}
+
+function buildWsUrl() {
+  if (!CONFIG.wsEndpoint) {
+    return "";
+  }
+
+  const baseUrl = new URL(window.location.href);
+  let url = new URL(CONFIG.wsEndpoint, baseUrl);
+
+  if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  }
+
+  if (lastEventId) {
+    url.searchParams.set("lastEventId", lastEventId);
+  }
+
+  if (CONFIG.apiKey && !url.searchParams.has("apiKey")) {
+    url.searchParams.set("apiKey", CONFIG.apiKey);
+  }
+
+  return url.toString();
+}
+
+function buildTaskStatsUrls() {
+  const urls = [];
+  const pushUrl = (value) => {
+    if (!value) {
+      return;
+    }
+
+    const normalized = String(value).trim();
+    if (normalized && !urls.includes(normalized)) {
+      urls.push(normalized);
+    }
+  };
+
+  if (CONFIG.taskStatsEndpoint) {
+    String(CONFIG.taskStatsEndpoint)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach(pushUrl);
+  }
+
+  try {
+    pushUrl(new URL("./api/tasks/stats", window.location.href).toString());
+  } catch {
+    // ignore malformed endpoint
+  }
+
+  return urls;
+}
+
+function buildTaskRuntimeUrls() {
+  const urls = [];
+  const pushUrl = (value) => {
+    if (!value) {
+      return;
+    }
+
+    const normalized = String(value).trim();
+    if (normalized && !urls.includes(normalized)) {
+      urls.push(normalized);
+    }
+  };
+
+  if (CONFIG.taskRuntimeEndpoint) {
+    String(CONFIG.taskRuntimeEndpoint)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach(pushUrl);
+  }
+
+  try {
+    pushUrl(new URL("./api/tasks/runtime", window.location.href).toString());
+  } catch {
+    // ignore malformed endpoint
+  }
+
+  return urls;
+}
+
+function normalizeTaskStatsPayload(payload) {
+  const root = payload?.data || payload?.stats || payload;
+  if (!root || typeof root !== "object") {
+    return null;
+  }
+
+  const counts = root.taskCount && typeof root.taskCount === "object" ? root.taskCount : root;
+  const taskList = Array.isArray(root.taskList)
+    ? root.taskList
+    : Array.isArray(root.items)
+      ? root.items
+      : Array.isArray(root.tasks)
+        ? root.tasks
+        : [];
+  const total = safeNumber(firstDefined(counts.total, root.total, root.taskCount, taskList.length));
+  const todo = safeNumber(firstDefined(counts.todo, root.todo));
+  const doing = safeNumber(firstDefined(counts.doing, root.doing, root.inProgress));
+  const blocked = safeNumber(firstDefined(counts.blocked, root.blocked));
+  const done = safeNumber(firstDefined(counts.done, root.done));
+  const currentTask = taskList.find((item) => String(item?.status || "").toLowerCase() === "doing")
+    || taskList.find((item) => String(item?.status || "").toLowerCase() === "blocked")
+    || taskList[0]
+    || null;
+
+  if (total === null && todo === null && doing === null && blocked === null && done === null) {
+    return null;
+  }
+
+  return {
+    total: total ?? Math.max((todo || 0) + (doing || 0) + (blocked || 0) + (done || 0), 0),
+    todo: todo ?? 0,
+    doing: doing ?? 0,
+    blocked: blocked ?? 0,
+    done: done ?? 0,
+    currentTask: currentTask
+      ? {
+          taskId: currentTask.taskId || currentTask.id || "",
+          title: currentTask.title || currentTask.name || "",
+          status: String(currentTask.status || "").toLowerCase(),
+          progress: safeNumber(currentTask.progress),
+          updatedAt: currentTask.updatedAt || "",
+          failureReason: String(currentTask.failureReason || "").trim(),
+          lastError: String(currentTask.lastError || "").trim(),
+          availableActions: Array.isArray(currentTask.availableActions)
+            ? currentTask.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+            : [],
+        }
+      : null,
+  };
+}
+
+function normalizeTaskRuntimePayload(payload) {
+  const root = payload?.data || payload?.runtime || payload;
+  if (!root || typeof root !== "object") {
+    return null;
+  }
+
+  const currentTaskRoot = root.currentTask && typeof root.currentTask === "object" ? root.currentTask : null;
+  const nextTaskRoot = root.nextTask && typeof root.nextTask === "object" ? root.nextTask : null;
+  const queueSummaryRoot = root.queueSummary && typeof root.queueSummary === "object" ? root.queueSummary : null;
+
+  const queued = safeNumber(firstDefined(queueSummaryRoot?.queued, root.queued, root.queueCount));
+  const running = safeNumber(firstDefined(queueSummaryRoot?.running, root.running, root.runningCount, currentTaskRoot ? 1 : null));
+  const failed = safeNumber(firstDefined(queueSummaryRoot?.failed, root.failed, root.failedCount));
+
+  if (!currentTaskRoot && !nextTaskRoot && queued === null && running === null && failed === null) {
+    return null;
+  }
+
+  return {
+    currentTask: currentTaskRoot
+      ? {
+          taskId: currentTaskRoot.taskId || currentTaskRoot.id || "",
+          title: currentTaskRoot.title || currentTaskRoot.name || "",
+          status: String(currentTaskRoot.status || "").toLowerCase(),
+          startedAt: currentTaskRoot.startedAt || currentTaskRoot.updatedAt || "",
+          progress: safeNumber(currentTaskRoot.progress),
+          etaSeconds: safeNumber(firstDefined(currentTaskRoot.etaSeconds, currentTaskRoot.eta)),
+          failureReason: String(currentTaskRoot.failureReason || "").trim(),
+          lastError: String(currentTaskRoot.lastError || "").trim(),
+          availableActions: Array.isArray(currentTaskRoot.availableActions)
+            ? currentTaskRoot.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+            : [],
+        }
+      : null,
+    nextTask: nextTaskRoot
+      ? {
+          taskId: nextTaskRoot.taskId || nextTaskRoot.id || "",
+          title: nextTaskRoot.title || nextTaskRoot.name || "",
+          status: String(nextTaskRoot.status || "").toLowerCase(),
+          scheduledAt: nextTaskRoot.scheduledAt || nextTaskRoot.dueAt || "",
+        }
+      : null,
+    queueSummary: {
+      queued: queued ?? 0,
+      running: running ?? 0,
+      failed: failed ?? 0,
+    },
+  };
+}
+
+async function fetchTaskStats() {
+  if (useMock || useDemo) {
+    return null;
+  }
+
+  const urls = buildTaskStatsUrls();
+
+  for (const url of urls) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), Math.min(CONFIG.requestTimeoutMs, 6000));
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          ...CONFIG.headers,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload = await response.json();
+      const stats = normalizeTaskStatsPayload(payload);
+      if (stats) {
+        return stats;
+      }
+    } catch {
+      // try next candidate
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  return null;
+}
+
+async function fetchTaskRuntime() {
+  if (useMock || useDemo) {
+    return null;
+  }
+
+  const urls = buildTaskRuntimeUrls();
+
+  for (const url of urls) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), Math.min(CONFIG.requestTimeoutMs, 6000));
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          ...CONFIG.headers,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload = await response.json();
+      const runtime = normalizeTaskRuntimePayload(payload);
+      if (runtime) {
+        return runtime;
+      }
+    } catch {
+      // try next candidate
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  return null;
+}
+
+async function refreshTaskStats(forceRender = false) {
+  if (taskStatsRefreshPromise) {
+    return taskStatsRefreshPromise;
+  }
+
+  taskStatsRefreshPromise = (async () => {
+    const nextStats = await fetchTaskStats();
+    const nextSignature = nextStats ? JSON.stringify(nextStats) : "";
+
+    if (nextSignature && nextSignature !== lastTaskStatsSignature) {
+      latestTaskStats = nextStats;
+      lastTaskStatsSignature = nextSignature;
+
+      if (rawStatusCache) {
+        const state = normalizeStatus(rawStatusCache);
+        lastSuccessfulState = state;
+        renderState(state, { source: "task-stats" });
+      }
+    } else if (!nextSignature && !forceRender) {
+      return null;
+    }
+
+    return latestTaskStats;
+  })();
+
+  try {
+    return await taskStatsRefreshPromise;
+  } finally {
+    taskStatsRefreshPromise = null;
+  }
+}
+
+async function refreshTaskRuntime(forceRender = false) {
+  if (taskRuntimeRefreshPromise) {
+    return taskRuntimeRefreshPromise;
+  }
+
+  taskRuntimeRefreshPromise = (async () => {
+    const nextRuntime = await fetchTaskRuntime();
+    const nextSignature = nextRuntime ? JSON.stringify(nextRuntime) : "";
+
+    if (nextSignature && nextSignature !== lastTaskRuntimeSignature) {
+      latestTaskRuntime = nextRuntime;
+      lastTaskRuntimeSignature = nextSignature;
+
+      if (rawStatusCache) {
+        const state = normalizeStatus(rawStatusCache);
+        lastSuccessfulState = state;
+        renderState(state, { source: "task-runtime" });
+      }
+    } else if (!nextSignature && !forceRender) {
+      return null;
+    }
+
+    return latestTaskRuntime;
+  })();
+
+  try {
+    return await taskRuntimeRefreshPromise;
+  } finally {
+    taskRuntimeRefreshPromise = null;
+  }
+}
+
+function countRunningTasks(list) {
+  if (!Array.isArray(list)) {
+    return null;
+  }
+
+  return list.filter((item) => {
+    const status = String(item?.status || "").trim().toLowerCase();
+    return status === "doing" || status === "running" || status === "in_progress";
+  }).length;
+}
+
+function resolveTaskCount(root, payload) {
+  const rootTaskCount = root.taskCount && typeof root.taskCount === "object" ? root.taskCount : null;
+  const payloadTaskCount = payload.taskCount && typeof payload.taskCount === "object" ? payload.taskCount : null;
+
+  return firstDefined(
+    latestTaskRuntime?.queueSummary?.running,
+    latestTaskStats?.doing,
+    root.runtime?.queueSummary?.running,
+    payload.runtime?.queueSummary?.running,
+    rootTaskCount?.running,
+    rootTaskCount?.doing,
+    rootTaskCount?.inProgress,
+    payloadTaskCount?.running,
+    payloadTaskCount?.doing,
+    payloadTaskCount?.inProgress,
+    root.running,
+    root.runningCount,
+    root.doing,
+    root.inProgress,
+    root.metrics?.running,
+    payload.running,
+    payload.runningCount,
+    payload.doing,
+    payload.inProgress,
+    countRunningTasks(root.tasks),
+    countRunningTasks(payload.tasks),
+  );
+}
+
+function translateMode(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  return modeLabels[raw] || raw || "未知";
+}
+
+function translateAlert(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  return alertLabels[raw] || raw || "未知";
+}
+
+function normalizeScene(value) {
+  const raw = String(value || "").trim().toLowerCase();
+
+  if (!raw) {
+    return "";
+  }
+
+  if (["outdoor", "outside", "town", "street", "park", "square", "city"].some((token) => raw.includes(token))) {
+    return "outdoor";
+  }
+
+  if (["room", "indoor", "inside", "home", "bedroom", "office", "control"].some((token) => raw.includes(token))) {
+    return "room";
+  }
+
+  return "";
+}
+
+function normalizeIdleActivity(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) {
+    return "";
+  }
+
+  const compact = raw.replace(/[\s-]+/g, "_");
+  const aliases = {
+    stayhome: "stay_home",
+    stay_home: "stay_home",
+    home: "stay_home",
+    walkdog: "walk_dog",
+    walk_dog: "walk_dog",
+    dog: "walk_dog",
+    supermarket: "supermarket",
+    grocery: "supermarket",
+    shopping: "supermarket",
+    walk: "walk",
+    stroll: "stroll",
+    town: "town",
+    park: "park",
+    coffee: "coffee",
+    cafe: "coffee",
+  };
+
+  return aliases[compact] || compact;
+}
+
+function translateIdleActivity(value) {
+  const key = normalizeIdleActivity(value);
+  if (!key) {
+    return "";
+  }
+
+  return idleActivityLabels[key] || translateIncomingText(key) || key;
+}
+
+function formatIdleActivitySentence(label) {
+  if (!label) {
+    return "正在外出放风";
+  }
+
+  if (label.endsWith("中") || label.startsWith("在")) {
+    return label;
+  }
+
+  return `正在${label}`;
+}
+
+function resolveFrontEndRestAnimation(runtime) {
+  const focusedAgent = { id: focusedAgentId || "main" };
+  const queued = safeNumber(runtime?.queueSummary?.queued) || 0;
+  if (queued > 0) {
+    return {
+      scene: "room",
+      idleActivity: "stay_home",
+      position: { x: 4, y: 6 },
+      taskLabel: "等待任务安排",
+      description: `${focusedAgent?.id || "main"} 当前没有运行任务，正在休息区待命。`,
+      nextChangeMs: 0,
+    };
+  }
+
+  const now = Date.now();
+  const phase = now % REST_ANIMATION_CYCLE_MS;
+  if (phase < REST_ROOM_PHASE_MS) {
+    return {
+      scene: "room",
+      idleActivity: "stay_home",
+      position: { x: 4, y: 6 },
+      taskLabel: "休息中",
+      description: `${focusedAgent?.id || "main"} 当前没有运行任务，正在休息区待命。`,
+      nextChangeMs: REST_ROOM_PHASE_MS - phase,
+    };
+  }
+
+  return {
+    scene: "outdoor",
+    idleActivity: "walk_dog",
+    position: { x: 5, y: 11 },
+    taskLabel: "遛狗中",
+    description: `${focusedAgent?.id || "main"} 当前没有运行任务，正在室外活动。`,
+    nextChangeMs: REST_ANIMATION_CYCLE_MS - phase,
+  };
+}
+
+function translateSessionKey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "控制指令";
+  }
+
+  return "控制指令";
+}
+
+function translateIncomingText(value) {
+  const raw = String(value || "").trim();
+  const focusedAgent = { id: focusedAgentId || "main" };
+  if (!raw) {
+    return "";
+  }
+
+  const exactMap = {
+    snapshot: "快照同步",
+    "ws-connect": "实时连接建立",
+    status: "状态更新",
+    hello: "握手成功",
+    running: "运行中",
+    active: "活跃",
+    offline: "离线",
+  };
+
+  if (exactMap[raw.toLowerCase()]) {
+    return exactMap[raw.toLowerCase()];
+  }
+
+  const activeMatch = raw.match(/^Active:\s*(.+)$/i);
+  if (activeMatch) {
+    return "远程控制进行中";
+  }
+
+  const latestMatch = raw.match(/^Latest session:\s*(.+)$/i);
+  if (latestMatch) {
+    return `刚收到新的${translateSessionKey(latestMatch[1])}`;
+  }
+
+  if (/^OpenClaw status pulled successfully\.?$/i.test(raw)) {
+    return `${focusedAgent?.id || "main"} 状态同步完成。`;
+  }
+
+  const gatewayMatch = raw.match(/^Gateway online\s*[·|]\s*sessions=(\d+)\s*[·|]\s*node=([^(]+)\(pid\s*(\d+),\s*state\s*([^)]+)\)$/i);
+  if (gatewayMatch) {
+    const [, sessions, nodeMode] = gatewayMatch;
+    const nodeModeText = translateMode(nodeMode);
+    return `后台已连通，当前正在处理 ${sessions} 路控制，主节点${nodeModeText}。`;
+  }
+
+  if (/^[a-z]+(?::[a-z0-9_-]+){2,}$/i.test(raw)) {
+    return "远程控制链路活跃";
+  }
+
+  const compactGateway = raw
+    .replace(/Gateway online/gi, "后台在线")
+    .replace(/sessions=/gi, "控制通道 ")
+    .replace(/node=running/gi, "主节点运行中")
+    .replace(/node=idle/gi, "主节点待机中")
+    .replace(/state active/gi, "状态运行中")
+    .replace(/state idle/gi, "状态待机中")
+    .replace(/state running/gi, "状态运行中")
+    .replace(/state offline/gi, "状态离线")
+    .replace(/pid/gi, "PID");
+
+  if (compactGateway !== raw) {
+    return compactGateway;
+  }
+
+  return raw
+    .replace(/\bGateway\b/gi, "网关")
+    .replace(/\bonline\b/gi, "在线")
+    .replace(/\brunning\b/gi, "运行中")
+    .replace(/\bactive\b/gi, "活跃")
+    .replace(/\boffline\b/gi, "离线")
+    .replace(/\bsnapshot\b/gi, "快照同步")
+    .replace(/\bstatus update\b/gi, "状态更新")
+    .replace(/\bws-connect\b/gi, "实时连接建立");
+}
+
+function compactTaskLabel(task) {
+  const raw = translateIncomingText(task);
+
+  if (!raw) {
+    return "等待后台状态";
+  }
+
+  const parts = raw.split(":").map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 4) {
+    return `${parts[0]} / ${parts[parts.length - 2]} / ${parts[parts.length - 1]}`;
+  }
+
+  if (raw.length > 42) {
+    return `${raw.slice(0, 39)}...`;
+  }
+
+  return raw;
+}
+
+function looksLikeEmptyTask(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) {
+    return true;
+  }
+
+  return [
+    "暂无任务",
+    "无任务",
+    "no task",
+    "none",
+    "idle",
+    "rest",
+    "待机",
+    "空闲",
+  ].some((token) => raw.includes(token));
+}
+
+function resolveDisplayTask(state) {
+  if (state.scene === "outdoor") {
+    return state.idleActivityLabel || state.task || "外出放风";
+  }
+
+  return state.task;
+}
+
+function resolveBannerArea(state) {
+  if (state.scene === "outdoor") {
+    return "室外总览";
+  }
+
+  return state.zoneName;
+}
+
+function setText(node, value) {
+  const normalized = String(value ?? "");
+  if (node.textContent !== normalized) {
+    node.textContent = normalized;
+  }
+}
+
+function setTitle(node, value) {
+  const normalized = String(value ?? "");
+  if (node.title !== normalized) {
+    node.title = normalized;
+  }
+}
+
+function stateSignature(state) {
+  return [
+    state.zone,
+    state.scene,
+    state.idleActivity,
+    state.position.x,
+    state.position.y,
+    state.task,
+    state.description,
+    state.mode,
+    state.alertLevel,
+    state.load,
+    state.battery,
+    state.temperature,
+    state.taskCount,
+  ].join("||");
+}
+
+function feedSignature(items) {
+  return items
+    .slice(0, MAX_FEED_ITEMS)
+    .map((item) => `${item.zone}|${item.time}|${item.message}`)
+    .join("||");
+}
+
+function normalizeZone(value) {
+  const raw = String(value || "").trim().toLowerCase();
+
+  if (!raw) {
+    return "";
+  }
+
+  if (["rest", "idle", "charging", "standby", "sleep", "bedroom", "room", "home", "house", "休息", "休息区", "卧室", "家里", "房间", "待机", "充电"].some((token) => raw.includes(token))) {
+    return "rest";
+  }
+
+  if (["work", "task", "job", "running", "operate", "生产", "工作", "执行", "搬运", "抓取"].some((token) => raw.includes(token))) {
+    return "work";
+  }
+
+  if (["alarm", "alert", "warning", "danger", "emergency", "警报", "告警", "异常", "风险"].some((token) => raw.includes(token))) {
+    return "alarm";
+  }
+
+  return "";
+}
+
+function normalizeAlert(value) {
+  const raw = String(value || "GREEN").trim().toUpperCase();
+
+  if (["RED", "CRITICAL", "ALARM", "DANGER", "ERROR"].some((token) => raw.includes(token))) {
+    return "RED";
+  }
+
+  if (["AMBER", "YELLOW", "WARN"].some((token) => raw.includes(token))) {
+    return "AMBER";
+  }
+
+  if (["BLUE", "RUNNING", "ACTIVE"].some((token) => raw.includes(token))) {
+    return "BLUE";
+  }
+
+  if (["OFFLINE", "DISCONNECTED"].some((token) => raw.includes(token))) {
+    return "OFFLINE";
+  }
+
+  return "GREEN";
+}
+
+function detectZoneFromPosition(position) {
+  if (position.x >= 19) {
+    return "alarm";
+  }
+
+  if (position.x >= 9 && position.x <= 18) {
+    return "work";
+  }
+
+  return "rest";
+}
+
+function normalizePosition(rawPosition, zone) {
+  let x = null;
+  let y = null;
+
+  if (Array.isArray(rawPosition) && rawPosition.length >= 2) {
+    [x, y] = rawPosition;
+  } else if (typeof rawPosition === "string" && rawPosition.includes(",")) {
+    const [rawX, rawY] = rawPosition.split(",");
+    x = rawX;
+    y = rawY;
+  } else if (rawPosition && typeof rawPosition === "object") {
+    x = firstDefined(rawPosition.x, rawPosition.col, rawPosition.tileX);
+    y = firstDefined(rawPosition.y, rawPosition.row, rawPosition.tileY);
+  }
+
+  const safeX = safeNumber(x);
+  const safeY = safeNumber(y);
+  const anchor = zoneAnchors[zone] || zoneAnchors.rest;
+
+  return {
+    x: safeX === null ? anchor.x : Math.min(Math.max(Math.round(safeX), 1), LOGICAL_MAP_WIDTH - 2),
+    y: safeY === null ? anchor.y : Math.min(Math.max(Math.round(safeY), 1), LOGICAL_MAP_HEIGHT - 2),
+  };
+}
+
+function projectPositionIntoZone(position, zone) {
+  const bounds = zoneRenderBounds[zone];
+  if (!bounds) {
+    return position;
+  }
+
+  const xRatio = clamp((position.x - 1) / Math.max(LOGICAL_MAP_WIDTH - 3, 1), 0, 1);
+  const yRatio = clamp((position.y - 1) / Math.max(LOGICAL_MAP_HEIGHT - 3, 1), 0, 1);
+
+  return {
+    x: Math.round(bounds.minX + (bounds.maxX - bounds.minX) * xRatio),
+    y: Math.round(bounds.minY + (bounds.maxY - bounds.minY) * yRatio),
+  };
+}
+
+function hasPhaserMap() {
+  return Boolean(window.OpenClawPhaserTownMap);
+}
+
+function syncPhaserMapState(state) {
+  if (!hasPhaserMap()) {
+    return;
+  }
+
+  window.OpenClawPhaserTownMap.apply(
+    state
+      ? {
+          zone: state.zone,
+          scene: state.scene,
+          idleActivity: state.idleActivity,
+          idleActivityLabel: state.idleActivityLabel,
+          alertLevel: state.alertLevel,
+          focusedAgentId,
+          position: state.position,
+          townPosition: state.position,
+          roomPosition: state.mapPosition || state.position,
+        }
+      : {
+          zone: "",
+          alertLevel: "OFFLINE",
+          position: null,
+        },
+  );
+}
+
+function normalizeLogs(rawLogs) {
+  if (!Array.isArray(rawLogs)) {
+    return [];
+  }
+
+  return rawLogs
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+
+      const zone = normalizeZone(entry.zone || entry.area || entry.level) || "system";
+      const message = firstDefined(entry.message, entry.text, entry.summary, entry.event);
+
+      if (!message) {
+        return null;
+      }
+
+      return {
+        zone,
+        time: firstDefined(entry.time, entry.timestamp, entry.updatedAt, new Date().toISOString()),
+        message: translateIncomingText(message),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_FEED_ITEMS);
+}
+
+function translateTaskWorkflowStatus(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const labels = {
+    todo: "待开始",
+    doing: "进行中",
+    running: "运行中",
+    queued: "排队中",
+    blocked: "已阻塞",
+    failed: "失败",
+    done: "已完成",
+    archived: "已归档",
+  };
+
+  return labels[raw] || raw || "待开始";
+}
+
+function setTaskActionVisibility(visible) {
+  if (!refs.taskActions) {
+    return;
+  }
+
+  refs.taskActions.hidden = !visible;
+}
+
+function buildTaskActionUrl(taskId, action) {
+  return new URL(`./api/tasks/${encodeURIComponent(taskId)}/${action}`, window.location.href).toString();
+}
+
+function updateTaskActions(state) {
+  if (!refs.taskActions) {
+    return;
+  }
+
+  const task = state?.actionableTask || null;
+  const actions = Array.isArray(task?.availableActions) ? task.availableActions : [];
+  const showRetry = actions.includes("retry");
+  const showResolve = actions.includes("resolve");
+  const visible = !useMock && !useDemo && Boolean(task?.taskId) && (showRetry || showResolve);
+
+  setTaskActionVisibility(visible);
+  if (!visible) {
+    refs.retryTaskButton.hidden = true;
+    refs.resolveTaskButton.hidden = true;
+    refs.taskActionNote.textContent = "";
+    return;
+  }
+
+  refs.retryTaskButton.hidden = !showRetry;
+  refs.resolveTaskButton.hidden = !showResolve;
+  refs.retryTaskButton.disabled = Boolean(taskActionInFlight);
+  refs.resolveTaskButton.disabled = Boolean(taskActionInFlight);
+
+  if (taskActionInFlight === "retry") {
+    refs.retryTaskButton.textContent = "重试中...";
+  } else {
+    refs.retryTaskButton.textContent = "重试任务";
+  }
+
+  if (taskActionInFlight === "resolve") {
+    refs.resolveTaskButton.textContent = "处理中...";
+  } else {
+    refs.resolveTaskButton.textContent = "处理完成";
+  }
+
+  const note = taskActionMessage
+    || task.failureReason
+    || task.lastError
+    || (showRetry ? "当前失败任务可直接重试或标记处理完成。" : "当前任务可标记处理完成。");
+  refs.taskActionNote.textContent = translateIncomingText(note);
+}
+
+async function performTaskAction(action) {
+  const state = lastRenderedState;
+  const task = state?.actionableTask;
+
+  if (!task?.taskId || !Array.isArray(task.availableActions) || !task.availableActions.includes(action)) {
+    return;
+  }
+
+  taskActionInFlight = action;
+  taskActionMessage = action === "retry" ? "正在发起重试..." : "正在更新处理结果...";
+  updateTaskActions(state);
+
+  try {
+    const response = await fetch(buildTaskActionUrl(task.taskId, action), {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...CONFIG.headers,
+      },
+      body: "{}",
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.detail || payload?.error || payload?.message || `HTTP ${response.status}`);
+    }
+
+    taskActionMessage = action === "retry" ? "已发起重试，正在同步最新状态。" : "已标记处理完成，正在同步最新状态。";
+    pushFeedItem({
+      zone: "system",
+      time: new Date().toISOString(),
+      message: taskActionMessage,
+    });
+
+    const result = await fetchStatus(true);
+    await Promise.all([refreshTaskStats(true), refreshTaskRuntime(true)]);
+    commitOnlineState(result.raw, {
+      source: "http",
+      recoveryMessage: "任务动作已同步到页面。",
+    });
+  } catch (error) {
+    taskActionMessage = `任务动作失败：${translateIncomingText(error?.message || "未知错误")}`;
+    pushFeedItem({
+      zone: "system",
+      time: new Date().toISOString(),
+      message: taskActionMessage,
+    });
+  } finally {
+    taskActionInFlight = "";
+    updateTaskActions(lastRenderedState);
+  }
+}
+
+function buildRuntimeSummary(runtime) {
+  if (!runtime) {
+    return "";
+  }
+
+  const parts = [];
+  const currentTask = runtime.currentTask;
+  const nextTask = runtime.nextTask;
+  const queueSummary = runtime.queueSummary || {};
+
+  if (currentTask?.title) {
+    const currentBits = [`当前执行《${currentTask.title}》`];
+    if (currentTask.progress !== null && currentTask.progress !== undefined) {
+      currentBits.push(`${Math.round(currentTask.progress)}%`);
+    }
+    const etaLabel = formatEtaLabel(currentTask.etaSeconds);
+    if (etaLabel) {
+      currentBits.push(`预计 ${etaLabel}`);
+    }
+    parts.push(currentBits.join(" · "));
+  }
+
+  if (nextTask?.title) {
+    parts.push(`下一项《${nextTask.title}》`);
+  }
+
+  if (
+    queueSummary.queued !== undefined ||
+    queueSummary.running !== undefined ||
+    queueSummary.failed !== undefined
+  ) {
+    parts.push(`队列：排队 ${queueSummary.queued ?? 0} 项 · 运行中 ${queueSummary.running ?? 0} 项 · 失败 ${queueSummary.failed ?? 0} 项`);
+  }
+
+  return parts.join(" ｜ ");
+}
+
+function buildRuntimeLogEntries(runtime, zone, fallbackTime) {
+  if (!runtime) {
+    return [];
+  }
+
+  const entries = [];
+  const currentTask = runtime.currentTask;
+  const nextTask = runtime.nextTask;
+  const queueSummary = runtime.queueSummary || {};
+
+  if (
+    queueSummary.queued !== undefined ||
+    queueSummary.running !== undefined ||
+    queueSummary.failed !== undefined
+  ) {
+    entries.push({
+      zone: "system",
+      time: fallbackTime,
+      message: `任务队列：排队 ${queueSummary.queued ?? 0} 项 · 运行中 ${queueSummary.running ?? 0} 项 · 失败 ${queueSummary.failed ?? 0} 项`,
+    });
+  }
+
+  if (nextTask?.title) {
+    entries.push({
+      zone,
+      time: nextTask.scheduledAt || fallbackTime,
+      message: `下一任务：${nextTask.title} · ${translateTaskWorkflowStatus(nextTask.status)}${nextTask.scheduledAt ? ` · 计划 ${formatDateTime(nextTask.scheduledAt)}` : ""}`,
+    });
+  }
+
+  if (currentTask?.title) {
+    entries.push({
+      zone,
+      time: currentTask.startedAt || fallbackTime,
+      message: `当前任务：${currentTask.title} · ${translateTaskWorkflowStatus(currentTask.status)} · ${Math.round(currentTask.progress ?? 0)}%${currentTask.etaSeconds ? ` · 预计 ${formatEtaLabel(currentTask.etaSeconds)}` : ""}`,
+    });
+  }
+
+  return entries;
+}
+
+function mergeFeedEntries(primary, secondary) {
+  const merged = [];
+  const seen = new Set();
+
+  [...primary, ...secondary].forEach((entry) => {
+    if (!entry?.message) {
+      return;
+    }
+
+    const key = `${entry.zone || "system"}|${entry.time || ""}|${entry.message}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    merged.push(entry);
+  });
+
+  return merged.slice(0, MAX_FEED_ITEMS);
+}
+
+function normalizeStatus(payload) {
+  const root = payload.robot || payload.openclaw || payload.data || payload;
+  const runtime = normalizeTaskRuntimePayload(firstDefined(root.runtime, payload.runtime)) || latestTaskRuntime;
+  const agents = Array.isArray(root.agents)
+    ? root.agents.map((agent) => ({
+        id: String(agent.id || "").trim(),
+        name: String(agent.name || agent.id || "").trim(),
+        enabled: Boolean(agent.enabled),
+        zone: normalizeZone(agent.zone) || "rest",
+        status: String(agent.status || "idle").trim().toLowerCase() || "idle",
+        heartbeatEvery: String(agent.heartbeatEvery || "").trim(),
+        heartbeatEveryMs: safeNumber(agent.heartbeatEveryMs),
+        session: agent.session && typeof agent.session === "object"
+          ? {
+              key: String(agent.session.key || "").trim(),
+              updatedAt: safeNumber(agent.session.updatedAt),
+              age: safeNumber(agent.session.age),
+              percentUsed: safeNumber(agent.session.percentUsed),
+              model: String(agent.session.model || "").trim(),
+            }
+          : null,
+      }))
+    : [];
+  const focusedAgent = agents.find((agent) => agent.id === focusedAgentId) || agents[0] || { id: focusedAgentId || "main" };
+  const explicitZone = normalizeZone(firstDefined(root.zone, root.currentZone, root.area, payload.zone, payload.currentZone));
+  const runtimeZone = runtime
+    ? (runtime.queueSummary?.failed || 0) > 0
+      ? "alarm"
+      : (runtime.queueSummary?.running || 0) > 0 || runtime.currentTask?.title
+        ? "work"
+        : ""
+    : "";
+  const statsZone = latestTaskStats
+    ? latestTaskStats.blocked > 0
+      ? "alarm"
+      : latestTaskStats.doing > 0
+        ? "work"
+      : latestTaskStats.total === 0
+          ? "rest"
+          : ""
+    : "";
+  const guessedZone = explicitZone || statsZone || runtimeZone;
+  let idleActivity = normalizeIdleActivity(firstDefined(
+    root.idleActivity,
+    root.activity,
+    payload.idleActivity,
+    payload.activity,
+  ));
+  const rawScene = normalizeScene(firstDefined(root.scene, root.view, payload.scene, payload.view, idleActivity ? "outdoor" : ""));
+  let scene = rawScene || (idleActivity ? "outdoor" : "room");
+  let rawPosition = normalizePosition(
+    firstDefined(root.position, root.coords, root.coordinate, root.tile, { x: root.x, y: root.y }),
+    guessedZone || "rest",
+  );
+  const zone = guessedZone || detectZoneFromPosition(rawPosition);
+  const frontEndRestAnimation = !useDemo && zone === "rest"
+    ? resolveFrontEndRestAnimation(runtime)
+    : null;
+
+  if (frontEndRestAnimation) {
+    scene = frontEndRestAnimation.scene;
+    idleActivity = frontEndRestAnimation.idleActivity;
+    rawPosition = frontEndRestAnimation.position;
+  }
+
+  const mapPosition = projectPositionIntoZone(rawPosition, zone);
+  const logs = normalizeLogs(firstDefined(payload.logs, payload.feed, payload.events, root.logs));
+  const runtimeLogs = buildRuntimeLogEntries(runtime, zone, firstDefined(payload.updatedAt, payload.timestamp, new Date().toISOString()));
+
+  const rawMode = String(firstDefined(root.mode, root.status, payload.mode, "RUNNING")).toUpperCase();
+  const resolvedMode = runtime
+    ? (runtime.queueSummary?.failed || 0) > 0
+      ? "ERROR"
+      : (runtime.queueSummary?.running || 0) > 0
+        ? rawMode
+        : "IDLE"
+    : latestTaskStats
+      ? latestTaskStats.blocked > 0
+        ? "ERROR"
+        : latestTaskStats.doing > 0
+          ? rawMode
+          : "IDLE"
+      : rawMode;
+  const rawAlert = normalizeAlert(firstDefined(root.alertLevel, root.alert, root.riskLevel, payload.alertLevel, "GREEN"));
+  const idleActivityLabel = translateIdleActivity(idleActivity);
+  const fallbackTask = scene === "outdoor" ? (idleActivityLabel || "外出放风") : "状态同步中";
+  const runtimeTaskTitle = runtime?.currentTask?.title || "";
+  const statsTaskTitle = latestTaskStats?.currentTask?.title || "";
+  const explicitTask = firstDefined(root.task, root.taskName, root.action, root.job, payload.task, "");
+  const runtimeFallbackTask = runtime
+    ? runtime.currentTask?.title
+      ? runtime.currentTask.title
+      : (runtime.queueSummary?.running || 0) > 0
+        ? `进行中任务 ${runtime.queueSummary?.running || 0} 项`
+        : runtime.nextTask?.title || ""
+    : "";
+  const statsFallbackTask = latestTaskStats
+    ? latestTaskStats.blocked > 0
+      ? "警报处理中"
+      : latestTaskStats.doing > 0
+        ? (statsTaskTitle || `进行中任务 ${latestTaskStats.doing} 项`)
+      : latestTaskStats.total === 0
+          ? "休息中"
+          : "等待任务安排"
+    : "";
+  const rawTask = translateIncomingText(firstDefined(runtimeFallbackTask, explicitTask, statsFallbackTask, runtimeTaskTitle, fallbackTask));
+  let task = scene === "outdoor" && looksLikeEmptyTask(rawTask) ? fallbackTask : rawTask;
+  const fallbackDescription = scene === "outdoor"
+    ? `${focusedAgent?.id || "main"} 当前暂无任务，${formatIdleActivitySentence(idleActivityLabel)}。`
+    : `${focusedAgent?.id || "main"} 已同步到像素地图。`;
+  const runtimeDescription = buildRuntimeSummary(runtime);
+  const explicitDescription = firstDefined(root.description, root.statusText, root.message, payload.description, "");
+  const statsDescription = latestTaskStats
+    ? latestTaskStats.total === 0
+      ? `${focusedAgent?.id || "main"} 当前没有任务，正在休息区待命。`
+      : `任务总数 ${latestTaskStats.total} 项 · 进行中 ${latestTaskStats.doing} 项${latestTaskStats.blocked > 0 ? ` · 阻塞 ${latestTaskStats.blocked} 项` : ""}`
+    : "";
+  let description = translateIncomingText(firstDefined(runtimeDescription, explicitDescription, statsDescription, fallbackDescription));
+  const actionableTask = runtime?.currentTask?.taskId
+    ? runtime.currentTask
+    : latestTaskStats?.currentTask?.taskId
+      ? latestTaskStats.currentTask
+      : null;
+
+  if (frontEndRestAnimation) {
+    task = frontEndRestAnimation.taskLabel;
+    description = frontEndRestAnimation.description;
+  }
+
+  return {
+    zone,
+    agents,
+    zoneName: zoneLabels[zone],
+    scene,
+    sceneLabel: sceneLabels[scene] || "室内",
+    idleActivity,
+    idleActivityLabel,
+    position: rawPosition,
+    mapPosition,
+    task,
+    description,
+    modeRaw: resolvedMode,
+    mode: translateMode(resolvedMode),
+    alertLevel: rawAlert,
+    alertText: translateAlert(rawAlert),
+    load: formatPercent(firstDefined(root.load, root.metrics?.load, payload.load)),
+    battery: formatPercent(firstDefined(root.battery, root.metrics?.battery, payload.battery)),
+    temperature: formatTemperature(firstDefined(root.temperature, root.metrics?.temperature, payload.temperature)),
+    taskCount: formatTaskCount(resolveTaskCount(root, payload)),
+    updatedAt: firstDefined(root.updatedAt, root.lastUpdate, payload.updatedAt, payload.timestamp, new Date().toISOString()),
+    logs: mergeFeedEntries(runtimeLogs, logs),
+    runtime,
+    actionableTask,
+    restAnimationNextMs: frontEndRestAnimation?.nextChangeMs || 0,
+  };
+}
+
+function syncMapViewport() {
+  if (hasPhaserMap()) {
+    window.OpenClawPhaserTownMap.resize();
+    return;
+  }
+
+  mapViewportRaf = 0;
+
+  if (!refs.mapScroller || !refs.mapGrid || !refs.mapBottom) {
+    return;
+  }
+
+  const bottomPadding = refs.mapBottom.offsetHeight + 14;
+  refs.mapScroller.style.paddingBottom = `${bottomPadding}px`;
+
+  const scrollerStyle = window.getComputedStyle(refs.mapScroller);
+  const gridStyle = window.getComputedStyle(refs.mapGrid);
+  const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tile-gap")) || 1;
+  const scrollerWidth = refs.mapScroller.clientWidth
+    - parseFloat(scrollerStyle.paddingLeft || "0")
+    - parseFloat(scrollerStyle.paddingRight || "0");
+  const scrollerHeight = refs.mapScroller.clientHeight
+    - parseFloat(scrollerStyle.paddingTop || "0")
+    - parseFloat(scrollerStyle.paddingBottom || "0");
+  const gridExtraWidth = parseFloat(gridStyle.paddingLeft || "0")
+    + parseFloat(gridStyle.paddingRight || "0")
+    + parseFloat(gridStyle.borderLeftWidth || "0")
+    + parseFloat(gridStyle.borderRightWidth || "0");
+  const gridExtraHeight = parseFloat(gridStyle.paddingTop || "0")
+    + parseFloat(gridStyle.paddingBottom || "0")
+    + parseFloat(gridStyle.borderTopWidth || "0")
+    + parseFloat(gridStyle.borderBottomWidth || "0");
+  const maxTileWidth = (scrollerWidth - gridExtraWidth - (gap * (MAP_WIDTH - 1))) / MAP_WIDTH;
+  const maxTileHeight = (scrollerHeight - gridExtraHeight - (gap * (MAP_HEIGHT - 1))) / MAP_HEIGHT;
+  const nextTileSize = Math.floor(Math.min(maxTileWidth, maxTileHeight));
+
+  if (!Number.isFinite(nextTileSize) || nextTileSize <= 0) {
+    return;
+  }
+
+  document.documentElement.style.setProperty("--tile-size", `${clamp(nextTileSize, 4, 22)}px`);
+}
+
+function queueMapViewportSync() {
+  if (mapViewportRaf) {
+    window.cancelAnimationFrame(mapViewportRaf);
+  }
+
+  mapViewportRaf = window.requestAnimationFrame(syncMapViewport);
+}
+
+function createMap() {
+  if (hasPhaserMap()) {
+    refs.mapGrid.innerHTML = "";
+    window.OpenClawPhaserTownMap.init(refs.mapGrid);
+    queueMapViewportSync();
+    return;
+  }
+
+  const mapData = buildMapData();
+  refs.mapGrid.innerHTML = "";
+  alertLightTiles = [];
+  tileRefs = mapData.map((row, y) =>
+    row.map((type, x) => {
+      const tile = document.createElement("div");
+      tile.className = `tile tile--${type}`;
+      tile.dataset.x = String(x);
+      tile.dataset.y = String(y);
+      if (type === "alert-light") {
+        alertLightTiles.push(tile);
+      }
+      refs.mapGrid.appendChild(tile);
+      return tile;
+    }),
+  );
+  setAlertLights("OFFLINE");
+  queueMapViewportSync();
+}
+
+function clearRobot() {
+  robotTiles.forEach((tile) => {
+    tile.classList.remove("tile--robot", "tile--robot-active");
+    tile.style.removeProperty("--robot-glow");
+    tile.querySelectorAll(".robot-sprite, .robot-label").forEach((node) => node.remove());
+  });
+  robotTiles.clear();
+  lastRobotSignature = "";
+}
+
+function robotGlow(alertLevel) {
+  if (alertLevel === "RED") {
+    return "rgba(255, 122, 92, 0.95)";
+  }
+
+  if (alertLevel === "AMBER") {
+    return "rgba(255, 209, 115, 0.92)";
+  }
+
+  if (alertLevel === "BLUE") {
+    return "rgba(140, 203, 227, 0.92)";
+  }
+
+  return "rgba(214, 239, 115, 0.9)";
+}
+
+function setAlertLights(alertLevel) {
+  const active = alertLevel === "RED" || alertLevel === "AMBER";
+
+  alertLightTiles.forEach((tile) => {
+    tile.classList.toggle("is-active", active);
+    tile.dataset.alert = active ? alertLevel : "OFFLINE";
+  });
+}
+
+function placeRobot(position, alertLevel, agents = [], focusedId = 'main') {
+  const signature = JSON.stringify({ position, alertLevel, agents: (agents || []).map((a) => [a.id, a.zone, a.status]), focusedId });
+  if (signature === lastRobotSignature) {
+    return;
+  }
+
+  clearRobot();
+  const placements = [];
+  const focusAgent = (agents || []).find((item) => item.id === focusedId) || null;
+  if (focusAgent) {
+    placements.push({ id: focusAgent.id, position, alertLevel, focused: true });
+  }
+
+  (agents || []).filter((item) => item.id !== focusedId).forEach((agent) => {
+    const fallback = zoneAnchors[agent.zone] || zoneAnchors.rest;
+    placements.push({ id: agent.id, position: fallback, alertLevel: 'GREEN', focused: false });
+  });
+
+  placements.forEach(({ id, position: pos, alertLevel: level, focused }) => {
+    const renderPosition = toRenderedPosition(pos);
+    const tile = tileRefs[renderPosition.y]?.[renderPosition.x];
+    if (!tile) return;
+    tile.classList.add('tile--robot');
+    if (focused) tile.classList.add('tile--robot-active');
+    tile.style.setProperty('--robot-glow', robotGlow(level));
+    const sprite = document.createElement('span');
+    sprite.className = 'robot-sprite';
+    sprite.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.className = 'robot-label';
+    label.textContent = id;
+    tile.append(sprite, label);
+    robotTiles.set(id, tile);
+  });
+
+  lastRobotSignature = signature;
+}
+
+function setActiveZone(zone) {
+  refs.mapHome.dataset.zone = zone || "none";
+  refs.zonePills.forEach((pill) => {
+    pill.classList.toggle("is-active", pill.dataset.zone === zone);
+  });
+}
+
+function classifyTimelineSeverity(text = '', zone = 'system') {
+  const value = `${text}`.toLowerCase();
+  if (['alarm'].includes(zone) || /failed|error|超时|timeout|阻塞|blocked|waiting_user|tool_error|离线|断开/.test(value)) return 'error';
+  if (/warning|注意|重连|同步|排队|queued/.test(value)) return 'warn';
+  return 'info';
+}
+
+function renderCriticalBanner(state) {
+  if (!refs.criticalBanner) return;
+  const task = state?.actionableTask || state?.runtime?.currentTask || null;
+  const text = `${task?.failureReason || ''} ${task?.lastError || ''} ${state?.description || ''}`;
+  const critical = state && (state.alertLevel === 'RED' || /failed|error|超时|timeout|阻塞|blocked|waiting_user|tool_error/.test(text.toLowerCase()));
+  refs.criticalBanner.hidden = !critical;
+  refs.criticalBanner.textContent = critical
+    ? `当前任务存在异常：${task?.failureReason || task?.lastError || state.description || '建议尽快查看并处理。'}`
+    : '';
+}
+
+function renderTimeline(items, state) {
+  if (!refs.timelineList) return;
+  refs.timelineList.innerHTML = '';
+  const task = state?.actionableTask || state?.runtime?.currentTask || null;
+  const timelineItems = [
+    ...(task?.title ? [{ zone: state?.zone || 'system', time: task.updatedAt || state?.updatedAt, message: `任务状态：${task.title} · ${translateTaskWorkflowStatus(task.status)}${task.failureReason ? ` · ${task.failureReason}` : ''}${task.lastError ? ` · ${task.lastError}` : ''}` }] : []),
+    ...feedItems,
+    ...((items || []).slice(0, 4)),
+  ].slice(0, 5);
+
+  if (!timelineItems.length) {
+    const empty = document.createElement('li');
+    empty.className = 'timeline-item';
+    empty.dataset.severity = 'info';
+    empty.textContent = '等待状态同步后生成时间线。';
+    refs.timelineList.appendChild(empty);
+    return;
+  }
+
+  timelineItems.forEach((item) => {
+    const li = document.createElement('li');
+    li.className = 'timeline-item';
+    li.dataset.severity = classifyTimelineSeverity(item.message, item.zone);
+    const meta = document.createElement('div');
+    meta.className = 'timeline-item__meta';
+    meta.innerHTML = `<span>${zoneLabels[item.zone] || zoneLabels.system}</span><span>${formatShortTime(item.time)}</span>`;
+    const body = document.createElement('div');
+    body.className = 'timeline-item__text';
+    body.textContent = String(item.message || '')
+      .replace(/^任务状态：/, '')
+      .replace(/^当前任务：/, '')
+      .replace(/^下一任务：/, '下一项：')
+      .replace(/ · /g, ' / ')
+      .replace('OpenClaw status pulled successfully.', '状态同步完成')
+      .replace('Latest session:', '最近活跃：')
+      .replace('任务队列：', '队列：')
+      .replace('进行中', '运行中')
+      .slice(0, 42);
+    li.append(meta, body);
+    refs.timelineList.appendChild(li);
+  });
+}
+
+function renderRecentSummary(state) {
+  if (!refs.recentSummary) return;
+  if (!state) {
+    refs.recentSummary.textContent = '等待状态同步后生成诊断摘要。';
+    return;
+  }
+
+  const queue = state.runtime?.queueSummary || latestTaskRuntime?.queueSummary || {};
+  const task = state.actionableTask || state.runtime?.currentTask || null;
+  const focusedAgent = getFocusedAgent(state);
+  const lead = task?.title ? `${focusedAgent?.id || 'main'} 正在处理《${task.title}》` : `${focusedAgent?.id || 'main'} 当前位于${zoneLabels[focusedAgent?.zone] || state.zoneName}`;
+  const blocker = task?.failureReason || task?.lastError || (state.alertLevel === 'RED' ? '存在需要处理的异常' : '运行稳定');
+  const nextHint = state.runtime?.nextTask?.title ? `下一任务是《${state.runtime.nextTask.title}》` : '暂无明确下一任务';
+  refs.recentSummary.textContent = `${lead}。${blocker}。${nextHint}。`;
+}
+
+function setViewMode(mode) {
+  viewMode = 'map';
+  document.body.dataset.viewMode = 'map';
+}
+
+
+function updateFeed(items, force = false) {
+  const nextItems = items.slice(0, MAX_FEED_ITEMS);
+  const nextSignature = feedSignature(nextItems);
+
+  if (!force && nextSignature === lastFeedSignature) {
+    feedItems = nextItems;
+    return;
+  }
+
+  feedItems = nextItems;
+  lastFeedSignature = nextSignature;
+}
+
+function pushFeedItem(item) {
+  const normalizedItem = {
+    zone: item.zone || "system",
+    time: item.time || new Date().toISOString(),
+    message: translateIncomingText(item.message),
+  };
+
+  const head = feedItems[0];
+  if (head && head.message === normalizedItem.message && head.zone === normalizedItem.zone) {
+    return;
+  }
+
+  updateFeed([normalizedItem, ...feedItems].slice(0, MAX_FEED_ITEMS), true);
+}
+
+function setConnectionBadge(state) {
+  refs.syncBadge.className = `sync-badge sync-badge--${state}`;
+  setText(refs.syncBadge, syncBadgeLabels[state] || state);
+}
+
+function setInterfaceStatus(state, message = "") {
+  setConnectionBadge(state);
+  if (message && refs.mapBanner && !lastRenderedState) {
+    setText(refs.mapBanner, message);
+  }
+}
+
+function getRunModeLabel() {
+  if (useDemo) return 'demo';
+  if (useMock) return 'mock';
+  return 'runtime';
+}
+
+function setRunModeChip() {
+  if (!refs.runModeChip) return;
+  setText(refs.runModeChip, getRunModeLabel());
+}
+
+
+
+function getAgents(state) {
+  const list = Array.isArray(state?.openclaw?.agents) ? state.openclaw.agents : [];
+  return list.filter((item) => item && item.id);
+}
+
+function getFocusedAgent(state) {
+  const agents = getAgents(state);
+  return agents.find((item) => item.id === focusedAgentId) || agents[0] || null;
+}
+
+function renderAgentTabs(state) {
+  const agents = getAgents(state);
+  if (!refs.agentTabs?.length) return;
+  refs.agentTabs.forEach((button) => {
+    const agentId = button.dataset.agent || '';
+    const exists = agents.some((item) => item.id === agentId);
+    button.hidden = !exists;
+    button.classList.toggle('is-active', agentId === focusedAgentId);
+  });
+}
+
+function renderAgentOverview(state) {
+  if (!refs.agentOverview) return;
+  const agents = getAgents(state);
+  refs.agentOverview.innerHTML = '';
+  agents.forEach((agent) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'agent-mini';
+    if (agent.id === focusedAgentId) card.classList.add('is-active');
+    card.addEventListener('click', () => {
+      focusedAgentId = agent.id;
+      if (lastRenderedState) renderState(lastRenderedState, { forceRerender: true });
+    });
+
+    const name = document.createElement('div');
+    name.className = 'agent-mini__name';
+    name.textContent = agent.id;
+
+    const meta = document.createElement('div');
+    meta.className = 'agent-mini__meta';
+    meta.textContent = `${agent.zone || 'rest'} / ${agent.status || 'idle'}`;
+
+    const task = document.createElement('div');
+    task.className = 'agent-mini__task';
+    task.textContent = agent.session?.key || '待命';
+
+    card.append(name, meta, task);
+    refs.agentOverview.appendChild(card);
+  });
+}
+
+function renderAgentPanels(state) {
+  if (!refs.agentPanels) return;
+  const agents = getAgents(state);
+  refs.agentPanels.innerHTML = '';
+  agents.forEach((agent) => {
+    const panel = document.createElement('section');
+    panel.className = 'agent-panel';
+    if (agent.id === focusedAgentId) panel.classList.add('is-active');
+
+    const title = document.createElement('div');
+    title.className = 'agent-panel__title';
+    title.textContent = `${agent.id} · ${zoneLabels[agent.zone] || agent.zone}`;
+
+    const status = document.createElement('div');
+    status.className = 'agent-panel__status';
+    status.textContent = `${agent.status || 'idle'}${agent.session?.age !== null && agent.session?.age !== undefined ? ` · ${Math.round(Number(agent.session.age) / 1000)} 秒前活跃` : ''}`;
+
+    const task = document.createElement('div');
+    task.className = 'agent-panel__task';
+    task.textContent = agent.session?.key || '当前无活跃会话';
+
+    panel.append(title, status, task);
+    refs.agentPanels.appendChild(panel);
+  });
+}
+function renderTaskDetail(state) {
+  if (!refs.taskDetail) return;
+  const focusedAgent = getFocusedAgent(state);
+  const task = focusedAgent?.session?.key ? { title: focusedAgent.session.key } : (state?.actionableTask || state?.runtime?.currentTask || latestTaskRuntime?.currentTask || latestTaskStats?.currentTask || null);
+  const queue = state?.runtime?.queueSummary || latestTaskRuntime?.queueSummary || null;
+
+  if (!task && !queue) {
+    refs.taskDetail.hidden = true;
+    return;
+  }
+
+  refs.taskDetail.hidden = false;
+  const status = String(task?.status || ((queue?.running || 0) > 0 ? 'running' : 'idle')).toLowerCase();
+  refs.taskDetailStatus.dataset.status = status;
+  refs.taskDetailStatus.textContent = status;
+  refs.taskDetailTitle.textContent = task?.title ? `正在处理《${task.title}》` : `${focusedAgent?.id || 'main'} 当前没有运行任务`;
+  const metaBits = [];
+  if (task?.startedAt) metaBits.push(`开始于 ${formatShortTime(task.startedAt)}`);
+  if (state?.updatedAt) metaBits.push(`更新于 ${formatShortTime(state.updatedAt)}`);
+  if (task?.progress !== null && task?.progress !== undefined) metaBits.push(`进度 ${Math.round(task.progress)}%`);
+  refs.taskDetailMeta.textContent = metaBits.join(' ｜ ') || '暂无运行任务';
+  const summaryBits = [];
+  if (task?.failureReason) summaryBits.push(`原因：${task.failureReason}`);
+  if (task?.lastError) summaryBits.push(`错误：${task.lastError}`);
+  if (queue) summaryBits.push(`队列：排队 ${queue.queued ?? 0} 项 · 运行中 ${queue.running ?? 0} 项 · 失败 ${queue.failed ?? 0} 项`);
+  refs.taskDetailSummary.textContent = translateIncomingText(summaryBits.join(' ｜ ') || '系统运行稳定，正在等待下一项安排。');
+}
+
+function renderNoSignal(message) {
+  if (restAnimationTimer) {
+    clearTimeout(restAnimationTimer);
+    restAnimationTimer = 0;
+  }
+  setText(refs.zoneName, "连接中");
+  setText(refs.taskName, "正在同步状态");
+  setTitle(refs.taskName, "正在同步状态");
+  setText(refs.taskSummary, message || "正在尝试连接 OpenClaw 状态流。");
+  setText(refs.modeValue, "连接中");
+  setText(refs.alertValue, "同步中");
+  if (refs.alertValue) refs.alertValue.dataset.alert = "BLUE";
+  if (refs.queueValue) setText(refs.queueValue, "--");
+  setText(refs.mapBanner, message || "正在同步状态...");
+  queueMapViewportSync();
+  renderTaskDetail(null);
+  renderCriticalBanner(null);
+  renderRecentSummary(null);
+  renderTimeline([], null);
+  setActiveZone("");
+  syncPhaserMapState(null);
+  if (!hasPhaserMap()) {
+    setAlertLights("OFFLINE");
+    clearRobot();
+  }
+  lastRenderedState = null;
+  updateTaskActions(null);
+  lastStateSignature = "";
+}
+
+function renderState(state, options = {}) {
+  if (restAnimationTimer) {
+    clearTimeout(restAnimationTimer);
+    restAnimationTimer = 0;
+  }
+  setConnectionBadge("online");
+  const nextSignature = stateSignature(state);
+  const changed = nextSignature !== lastStateSignature;
+  const previousTaskId = lastRenderedState?.actionableTask?.taskId || "";
+  const nextTaskId = state?.actionableTask?.taskId || "";
+  const displayTask = resolveDisplayTask(state);
+  const bannerArea = resolveBannerArea(state);
+
+  if (changed) {
+    const focusedAgent = getFocusedAgent(state);
+    const focusedZoneName = zoneLabels[focusedAgent?.zone] || state.zoneName;
+    const focusedTask = focusedAgent?.session?.key ? `Active: ${focusedAgent.session.key}` : displayTask;
+    setText(refs.zoneName, `${focusedAgent?.id || 'main'} · ${focusedZoneName}`);
+    setText(refs.taskName, compactTaskLabel(focusedTask));
+    setTitle(refs.taskName, focusedTask);
+    setText(refs.taskSummary, focusedAgent?.status === 'running' ? `${focusedAgent.id} 正在运行中，当前位置为${focusedZoneName}。` : state.description);
+    setText(refs.modeValue, state.mode);
+    setText(refs.alertValue, state.alertText);
+    if (refs.queueValue) setText(refs.queueValue, state.taskCount);
+    setText(refs.mapBanner, `${bannerArea} | ${focusedAgent?.id || 'main'} | ${displayTask} | 坐标 ${pad2(state.position.x)}, ${pad2(state.position.y)} | ${state.alertText}`);
+    queueMapViewportSync();
+    if (refs.alertValue) refs.alertValue.dataset.alert = state.alertLevel;
+    setActiveZone(focusedAgent?.zone || state.zone);
+    if (hasPhaserMap()) {
+      syncPhaserMapState(state);
+    } else {
+      setAlertLights(state.alertLevel);
+      placeRobot(state.mapPosition || state.position, state.alertLevel, getAgents(state), focusedAgentId);
+    }
+    lastStateSignature = nextSignature;
+  }
+
+  if (!taskActionInFlight && (changed || previousTaskId !== nextTaskId)) {
+    taskActionMessage = "";
+  }
+
+  lastRenderedState = state;
+  renderAgentTabs(state);
+  renderAgentOverview(state);
+  renderAgentPanels(state);
+  renderTaskDetail(state);
+  updateTaskActions(state);
+
+  if (refs.alertValue) refs.alertValue.dataset.alert = state.alertLevel;
+  if (!hasPhaserMap()) {
+    setAlertLights(state.alertLevel);
+  }
+
+  renderCriticalBanner(state);
+  renderRecentSummary(state);
+  renderTimeline(state.logs, state);
+
+  if (state.logs.length > 0) {
+    updateFeed(state.logs);
+  } else {
+    if (changed) {
+      pushFeedItem({
+        zone: state.zone,
+        time: state.updatedAt,
+        message: `${bannerArea} 执行 ${displayTask}，坐标落点 (${pad2(state.position.x)}, ${pad2(state.position.y)})。`,
+      });
+    }
+  }
+
+  if (!useDemo && rawStatusCache && state.zone === "rest" && Number(state.restAnimationNextMs) > 0) {
+    restAnimationTimer = window.setTimeout(() => {
+      restAnimationTimer = 0;
+      if (!rawStatusCache) {
+        return;
+      }
+      const nextState = normalizeStatus(rawStatusCache);
+      lastSuccessfulState = nextState;
+      renderState(nextState, { source: "rest-animation" });
+    }, Math.max(Number(state.restAnimationNextMs), 1000));
+  }
+}
+
+function updateClock() {
+  if (refs.clock) refs.clock.textContent = `${formatClock(new Date())} 北京时间`;
+}
+
+function describeConnectionError(error) {
+  if (error?.name === "AbortError") {
+    return `请求 ${CONFIG.endpoint} 超时，请确认后台服务是否已启动。`;
+  }
+
+  if (error?.status === 404) {
+    return `${CONFIG.endpoint} 返回 404，说明地址能访问，但后端没有这个路由。`;
+  }
+
+  if (error?.status) {
+    return `${CONFIG.endpoint} 返回 HTTP ${error.status}，请检查接口路径和鉴权。`;
+  }
+
+  if (String(error?.message || "").toLowerCase().includes("failed to fetch")) {
+    return `无法访问 ${CONFIG.endpoint}，通常是服务没启动、地址不对，或跨域 CORS 未放行。`;
+  }
+
+  return `无法连接 ${CONFIG.endpoint}，请检查接口地址和 CORS。`;
+}
+
+async function fetchStatus(forceRefresh = false) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), CONFIG.requestTimeoutMs);
+  const requestUrl = buildHttpUrl(forceRefresh);
+
+  try {
+    const [response] = await Promise.all([
+      fetch(requestUrl, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          ...CONFIG.headers,
+        },
+        signal: controller.signal,
+      }),
+      refreshTaskStats(),
+      refreshTaskRuntime(),
+    ]);
+
+    if (!response.ok) {
+      const error = new Error(`HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const payload = await response.json();
+    return {
+      raw: payload,
+      state: normalizeStatus(payload),
+      requestUrl,
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function normalizeWsEnvelope(raw) {
+  let parsed;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { type: "ignore" };
+  }
+
+  const type = String(parsed?.type || "").toLowerCase();
+
+  if (type === "hello") {
+    return {
+      type: "hello",
+      latestEventId: normalizeEventCursor(parsed.latestEventId),
+      connectionId: parsed.connectionId || null,
+      payload: parsed,
+    };
+  }
+
+  if (type === "replay_reset") {
+    return {
+      type: "replay_reset",
+      latestEventId: normalizeEventCursor(firstDefined(parsed.latestEventId, parsed.eventId)),
+      reason: firstDefined(parsed.reason, "replay_reset"),
+      payload: firstDefined(parsed.payload, parsed.data, null),
+    };
+  }
+
+  if (type === "status" || parsed?.patch !== undefined || parsed?.payload !== undefined || parsed?.data !== undefined || parsed?.zone || parsed?.robot || parsed?.openclaw) {
+    const mode = String(firstDefined(parsed.mode, parsed.patch !== undefined ? "patch" : "snapshot")).toLowerCase();
+    const payload = mode === "patch"
+      ? firstDefined(parsed.patch, parsed.payload, parsed.data, {})
+      : firstDefined(parsed.payload, parsed.data, parsed);
+
+    return {
+      type: "status",
+      mode,
+      reason: firstDefined(parsed.reason, parsed.event, "status"),
+      eventId: normalizeEventCursor(parsed.eventId),
+      baseEventId: normalizeEventCursor(parsed.baseEventId),
+      replay: Boolean(parsed.replay),
+      ts: firstDefined(parsed.ts, parsed.timestamp, new Date().toISOString()),
+      payload,
+    };
+  }
+
+  if (["ping", "pong", "heartbeat"].includes(type)) {
+    return { type: "ignore" };
+  }
+
+  return { type: "ignore" };
+}
+
+function commitOnlineState(rawState, options = {}) {
+  rawStatusCache = cloneJson(rawState);
+  const state = normalizeStatus(rawStatusCache);
+  const recovered = connectionState !== "online";
+
+  connectionState = "online";
+  lastSuccessfulState = state;
+  wsFailureCount = 0;
+
+  if (options.stopFallbackPolling) {
+    stopPolling();
+  }
+
+  setConnectionBadge("online");
+  ;
+  renderState(state, { source: options.source || "http" });
+
+  if (recovered && options.recoveryMessage) {
+    pushFeedItem({
+      zone: "system",
+      time: state.updatedAt,
+      message: options.recoveryMessage,
+    });
+  }
+
+  void refreshTaskStats();
+  void refreshTaskRuntime();
+
+  return state;
+}
+
+function stopPolling() {
+  pollActive = false;
+  if (pollTimer) {
+    window.clearTimeout(pollTimer);
+    pollTimer = 0;
+  }
+}
+
+function scheduleNextPoll() {
+  if (!pollActive) {
+    return;
+  }
+
+  if (pollTimer) {
+    window.clearTimeout(pollTimer);
+  }
+
+  pollTimer = window.setTimeout(runPollCycle, CONFIG.pollIntervalMs);
+}
+
+async function runPollCycle() {
+  if (!pollActive) {
+    return;
+  }
+
+  if (!lastSuccessfulState) {
+    setConnectionBadge("syncing");
+    ;
+  } else {
+    setConnectionBadge("online");
+    ;
+  }
+
+  try {
+    const result = await fetchStatus();
+    commitOnlineState(result.raw, {
+      source: "http",
+      recoveryMessage: "HTTP 兜底已接管状态同步。",
+    });
+  } catch (error) {
+    const message = describeConnectionError(error);
+    const wasOnline = connectionState === "online";
+    connectionState = "offline";
+    setConnectionBadge("offline");
+    ;
+
+    if (lastSuccessfulState) {
+      renderState(lastSuccessfulState, { source: "http" });
+      setText(refs.mapBanner, `${lastSuccessfulState.zoneName} | 保留最近一次有效位置 | ${message}`);
+    } else {
+      renderNoSignal(message);
+    }
+
+    if (wasOnline || feedItems.length === 0) {
+      pushFeedItem({
+        zone: "system",
+        time: new Date().toISOString(),
+        message,
+      });
+    }
+  } finally {
+    scheduleNextPoll();
+  }
+}
+
+function startPolling(reason = "") {
+  if (pollActive) {
+    return;
+  }
+
+  pollActive = true;
+  if (reason) {
+    pushFeedItem({
+      zone: "system",
+      time: new Date().toISOString(),
+      message: reason,
+    });
+  }
+  runPollCycle();
+}
+
+function scheduleWsReconnect() {
+  if (!CONFIG.wsEndpoint || useMock) {
+    return;
+  }
+
+  if (reconnectTimer) {
+    window.clearTimeout(reconnectTimer);
+  }
+
+  reconnectTimer = window.setTimeout(() => {
+    connectWebSocket();
+  }, CONFIG.wsReconnectDelayMs);
+}
+
+function handleReplayReset(message) {
+  if (message.latestEventId) {
+    lastEventId = message.latestEventId;
+  }
+
+  rawStatusCache = null;
+  setConnectionBadge("syncing");
+  ;
+  pushFeedItem({
+    zone: "system",
+    time: new Date().toISOString(),
+    message: "回放窗口已重置，正在等待最新快照。",
+  });
+
+  if (message.payload) {
+    commitOnlineState(message.payload, {
+      source: "ws",
+      stopFallbackPolling: true,
+      recoveryMessage: "最新快照已收到，实时订阅恢复。",
+    });
+  }
+}
+
+function requestWsResync(reason) {
+  wsCloseHint = reason;
+  connectionState = "syncing";
+  setConnectionBadge("syncing");
+  ;
+
+  if (websocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(websocket.readyState)) {
+    websocket.close();
+    return;
+  }
+
+  startPolling(reason);
+  scheduleWsReconnect();
+  wsCloseHint = "";
+}
+
+function handleWsStatus(message) {
+  const mode = String(message.mode || "snapshot").toLowerCase();
+  const eventCursor = normalizeEventCursor(message.eventId);
+  const baseCursor = normalizeEventCursor(message.baseEventId);
+
+  if (mode === "patch") {
+    if (!rawStatusCache) {
+      requestWsResync("实时流收到增量更新，但本地没有快照，正在重新同步。");
+      return;
+    }
+
+    if (baseCursor && lastEventId && baseCursor !== lastEventId) {
+      requestWsResync("实时流事件序号不连续，正在重新同步最新状态。");
+      return;
+    }
+
+    if (eventCursor) {
+      lastEventId = eventCursor;
+    }
+
+    commitOnlineState(applyMergePatch(rawStatusCache, message.payload || {}), {
+      source: "ws",
+      stopFallbackPolling: true,
+      recoveryMessage: "WebSocket 实时订阅已恢复，页面按增量状态刷新。",
+    });
+    return;
+  }
+
+  if (eventCursor) {
+    lastEventId = eventCursor;
+  }
+
+  commitOnlineState(message.payload || {}, {
+    source: "ws",
+    stopFallbackPolling: true,
+    recoveryMessage: message.replay ? "WebSocket 回放完成，实时状态已恢复。" : "WebSocket 实时订阅已恢复，页面按增量状态刷新。",
+  });
+}
+
+function connectWebSocket() {
+  if (!CONFIG.wsEndpoint || useMock || useDemo) {
+    return;
+  }
+
+  if (websocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(websocket.readyState)) {
+    return;
+  }
+
+  if (reconnectTimer) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+  }
+
+  try {
+    websocket = new WebSocket(buildWsUrl());
+  } catch (error) {
+    ;
+    startPolling("WebSocket 初始化失败，已回退 HTTP 轮询。");
+    scheduleWsReconnect();
+    return;
+  }
+
+  setConnectionBadge("syncing");
+  ;
+  connectionState = "syncing";
+
+  websocket.addEventListener("open", () => {
+    wsConnectedOnce = true;
+    setConnectionBadge("syncing");
+    setInterfaceStatus("syncing", "实时通道握手中");
+    connectionState = "syncing";
+  });
+
+  websocket.addEventListener("message", (event) => {
+    const message = normalizeWsEnvelope(event.data);
+
+    if (message.type === "hello") {
+      wsFailureCount = 0;
+      const connLabel = message.connectionId ? `#${message.connectionId}` : "";
+      if (lastSuccessfulState) {
+        setConnectionBadge("online");
+        ;
+      } else {
+        setConnectionBadge("syncing");
+        ;
+      }
+      return;
+    }
+
+    if (message.type === "replay_reset") {
+      handleReplayReset(message);
+      return;
+    }
+
+    if (message.type === "status") {
+      handleWsStatus(message);
+    }
+  });
+
+  websocket.addEventListener("close", (event) => {
+    websocket = null;
+    wsFailureCount += 1;
+    const closeDetail = `WS 断开 code=${event.code}${event.reason ? ` reason=${event.reason}` : ""}`;
+    const reason = wsCloseHint || `${closeDetail}，已回退 HTTP 并准备重连。`;
+    wsCloseHint = "";
+    connectionState = lastSuccessfulState ? "online" : "syncing";
+
+    if (lastSuccessfulState) {
+      renderState(lastSuccessfulState, { source: "http" });
+      setText(refs.mapBanner, `${lastSuccessfulState.zoneName} | HTTP 轮询已接管 | ${reason}`);
+      setConnectionBadge("online");
+      const detail = wsFailureCount >= 3 ? `实时通道不稳，HTTP 接管（${wsFailureCount} 次）` : "HTTP 轮询接管";
+      ;
+    } else {
+      renderNoSignal(reason);
+      setConnectionBadge("syncing");
+      ;
+    }
+
+    if (wsFailureCount >= 3) {
+      pushFeedItem({ zone: "system", time: new Date().toISOString(), message: closeDetail });
+    }
+    startPolling(reason);
+    scheduleWsReconnect();
+  });
+
+  websocket.addEventListener("error", () => {
+    if (lastSuccessfulState) {
+      setConnectionBadge("online");
+      ;
+    } else {
+      setConnectionBadge("syncing");
+      ;
+    }
+  });
+}
+
+function buildDemoPayloads() {
+  const now = Date.now();
+  const isoAt = (offsetMs) => new Date(now + offsetMs).toISOString();
+
+  const payloads = [
+    {
+      zone: "rest",
+      scene: "room",
+      idleActivity: "",
+      position: { x: 4, y: 6 },
+      task: "卧室休息",
+      description: `${ROBOT_DISPLAY_NAME} 正在休息区整理状态，准备出门巡场。`,
+      mode: "IDLE",
+      alertLevel: "GREEN",
+      load: 8,
+      battery: 98,
+      temperature: 31,
+      updatedAt: isoAt(0),
+      runtime: {
+        currentTask: null,
+        nextTask: null,
+        queueSummary: { queued: 0, running: 0, failed: 0 },
+      },
+      logs: [
+        { zone: "rest", time: isoAt(0), message: "休息区待命，准备出门巡场。" },
+      ],
+    },
+    {
+      zone: "rest",
+      scene: "outdoor",
+      idleActivity: "walk_dog",
+      position: { x: 5, y: 10 },
+      task: "室外遛弯",
+      description: `${ROBOT_DISPLAY_NAME} 已从休息区出门，正在门外放风。`,
+      mode: "IDLE",
+      alertLevel: "GREEN",
+      load: 12,
+      battery: 97,
+      temperature: 32,
+      updatedAt: isoAt(5000),
+      runtime: {
+        currentTask: null,
+        nextTask: {
+          taskId: "demo_task_work",
+          title: "去工作区整理文档",
+          status: "queued",
+          scheduledAt: isoAt(12000),
+        },
+        queueSummary: { queued: 1, running: 0, failed: 0 },
+      },
+      logs: [
+        { zone: "rest", time: isoAt(5000), message: "小龙虾从休息区门口出门，开始外出放风。" },
+      ],
+    },
+    {
+      zone: "work",
+      scene: "room",
+      idleActivity: "",
+      position: { x: 13, y: 7 },
+      task: "整理项目文档",
+      description: `${ROBOT_DISPLAY_NAME} 已进入工作区，正在工位处理文档整理任务。`,
+      mode: "RUNNING",
+      alertLevel: "BLUE",
+      load: 56,
+      battery: 95,
+      temperature: 37,
+      updatedAt: isoAt(10000),
+      runtime: {
+        currentTask: {
+          taskId: "demo_task_work",
+          title: "整理项目文档",
+          status: "running",
+          startedAt: isoAt(9000),
+          progress: 42,
+          etaSeconds: 160,
+        },
+        nextTask: {
+          taskId: "demo_task_alarm",
+          title: "检查警报控制台",
+          status: "queued",
+          scheduledAt: isoAt(18000),
+        },
+        queueSummary: { queued: 1, running: 1, failed: 0 },
+      },
+      logs: [
+        { zone: "work", time: isoAt(10000), message: "小龙虾到达工作区门口并进入工位。" },
+      ],
+    },
+    {
+      zone: "rest",
+      scene: "outdoor",
+      idleActivity: "supermarket",
+      position: { x: 13, y: 11 },
+      task: "逛超市补给",
+      description: `${ROBOT_DISPLAY_NAME} 当前没有新的运行任务，正在室外补给后返程。`,
+      mode: "IDLE",
+      alertLevel: "GREEN",
+      load: 10,
+      battery: 92,
+      temperature: 33,
+      updatedAt: isoAt(15000),
+      runtime: {
+        currentTask: null,
+        nextTask: null,
+        queueSummary: { queued: 0, running: 0, failed: 0 },
+      },
+      logs: [
+        { zone: "system", time: isoAt(15000), message: "演示模式：已完成休息区与工作区巡场，返回室外闲逛。" },
+      ],
+    },
+  ];
+
+  if (demoAlertEnabled) {
+    payloads.splice(3, 0, {
+      zone: "alarm",
+      scene: "room",
+      idleActivity: "",
+      position: { x: 20, y: 10 },
+      task: "检查警报控制台",
+      description: `${ROBOT_DISPLAY_NAME} 已收到警报，进入警报区核对控制台与告警灯状态。`,
+      mode: "RUNNING",
+      alertLevel: "AMBER",
+      load: 48,
+      battery: 93,
+      temperature: 39,
+      updatedAt: isoAt(15000),
+      runtime: {
+        currentTask: {
+          taskId: "demo_task_alarm",
+          title: "检查警报控制台",
+          status: "running",
+          startedAt: isoAt(14500),
+          progress: 78,
+          etaSeconds: 60,
+        },
+        nextTask: null,
+        queueSummary: { queued: 0, running: 1, failed: 0 },
+      },
+      logs: [
+        { zone: "alarm", time: isoAt(15000), message: "警报区亮灯，小龙虾已进入控制室检查。" },
+      ],
+    });
+  }
+
+  return payloads;
+}
+
+function stopDemoLoop() {
+  if (demoTimer) {
+    window.clearTimeout(demoTimer);
+    demoTimer = 0;
+  }
+}
+
+function startDemoLoop() {
+  stopDemoLoop();
+  const demoPayloads = buildDemoPayloads();
+  let demoIndex = 0;
+
+  const applyDemoStep = () => {
+    const payload = cloneJson(demoPayloads[demoIndex]);
+    commitOnlineState(payload, {
+      source: "demo",
+      stopFallbackPolling: true,
+      recoveryMessage: "",
+    });
+
+    demoIndex = (demoIndex + 1) % demoPayloads.length;
+    demoTimer = window.setTimeout(applyDemoStep, DEMO_STEP_DURATION_MS);
+  };
+
+  pushFeedItem({
+    zone: "system",
+    time: new Date().toISOString(),
+    message: demoAlertEnabled
+      ? "演示模式已启动，将按流程展示休息区、室外、工作区，并在触发告警演示时进入警报区。"
+      : "演示模式已启动，将自动展示休息区、室外和工作区的活动过程；警报区只在出现告警时进入。",
+  });
+  applyDemoStep();
+}
+
+async function bootstrapSync() {
+  if (useDemo) {
+    connectionState = "online";
+    setConnectionBadge("online");
+    ;
+    startDemoLoop();
+    return;
+  }
+
+  if (useMock || !CONFIG.wsEndpoint) {
+    startPolling("当前未启用 WebSocket，使用 HTTP 轮询。");
+    return;
+  }
+
+  setConnectionBadge("syncing");
+  ;
+
+  try {
+    const result = await fetchStatus();
+    commitOnlineState(result.raw, { source: "http" });
+  } catch (error) {
+    const message = describeConnectionError(error);
+    renderNoSignal(message);
+    setConnectionBadge("syncing");
+    ;
+  }
+
+  connectWebSocket();
+}
+
+createMap();
+setRunModeChip();
+setViewMode("map");
+updateClock();
+renderNoSignal("正在连接 OpenClaw，等待首帧状态。");
+window.setInterval(updateClock, 1000);
+window.addEventListener("resize", queueMapViewportSync);
+refs.retryTaskButton?.addEventListener("click", () => {
+  void performTaskAction("retry");
+});
+refs.resolveTaskButton?.addEventListener("click", () => {
+  void performTaskAction("resolve");
+});
+if (typeof ResizeObserver === "function") {
+  const mapResizeObserver = new ResizeObserver(() => {
+    queueMapViewportSync();
+  });
+  mapResizeObserver.observe(refs.mapScreen);
+  mapResizeObserver.observe(refs.mapBottom);
+}
+bootstrapSync();
+
+refs.agentTabs?.forEach((button) => {
+  button.addEventListener('click', () => {
+    focusedAgentId = button.dataset.agent || 'main';
+    if (lastRenderedState) renderState(lastRenderedState, { forceRerender: true });
+  });
+});
+
+window.__pokemonClawAppRuntimeReady = true;

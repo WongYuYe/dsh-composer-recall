@@ -1,8 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { transform } from 'esbuild';
+import { build } from 'esbuild';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,10 +19,6 @@ const staticCopies = [
   'mock-task-stats-empty.json',
   'mock-task-stats.json',
 ];
-
-function hashContent(content) {
-  return crypto.createHash('sha256').update(content).digest('hex').slice(0, 8);
-}
 
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
@@ -47,25 +42,6 @@ async function copyPathToDist(relPath) {
   const dest = path.join(distDir, relPath);
   await ensureDir(path.dirname(dest));
   await fs.copyFile(src, dest);
-}
-
-async function buildAsset(relPath, loader) {
-  const src = path.join(__dirname, relPath);
-  const source = await fs.readFile(src, 'utf8');
-  const result = await transform(source, {
-    loader,
-    minify: true,
-    legalComments: 'none',
-    charset: 'utf8',
-    target: loader === 'css' ? 'chrome100' : 'es2020',
-  });
-  const ext = path.extname(relPath);
-  const base = path.basename(relPath, ext);
-  const hashed = `${base}.${hashContent(result.code)}${ext}`;
-  const outPath = path.join(distDir, 'assets', hashed);
-  await ensureDir(path.dirname(outPath));
-  await fs.writeFile(outPath, result.code, 'utf8');
-  return `./assets/${hashed}`;
 }
 
 function minifyHtml(html) {
@@ -94,11 +70,78 @@ async function buildIndex({ stylesCss, phaserMapJs, appJs }) {
   await fs.writeFile(path.join(distDir, 'index.html'), html, 'utf8');
 }
 
+function outputPathToAssetRef(outputPath) {
+  const relativePath = path.relative(distDir, outputPath).split(path.sep).join('/');
+  return `./${relativePath}`;
+}
+
+async function buildJsEntries() {
+  const result = await build({
+    absWorkingDir: __dirname,
+    entryPoints: {
+      app: 'app.js',
+      'phaser-map': 'phaser-map.js',
+    },
+    bundle: true,
+    charset: 'utf8',
+    entryNames: '[name].[hash]',
+    format: 'esm',
+    legalComments: 'none',
+    metafile: true,
+    minify: true,
+    outdir: path.join(distDir, 'assets'),
+    target: ['es2020'],
+    write: true,
+  });
+
+  const entryOutputs = Object.entries(result.metafile.outputs)
+    .filter(([, output]) => output.entryPoint)
+    .reduce((acc, [outputPath, output]) => {
+      const key = path.basename(output.entryPoint, path.extname(output.entryPoint));
+      acc[key] = outputPathToAssetRef(outputPath);
+      return acc;
+    }, {});
+
+  return {
+    appJs: entryOutputs.app,
+    phaserMapJs: entryOutputs['phaser-map'],
+  };
+}
+
+async function buildCssEntry() {
+  const result = await build({
+    absWorkingDir: __dirname,
+    bundle: true,
+    charset: 'utf8',
+    entryNames: '[name].[hash]',
+    entryPoints: {
+      styles: 'styles.css',
+    },
+    legalComments: 'none',
+    loader: {
+      '.css': 'css',
+    },
+    metafile: true,
+    minify: true,
+    outdir: path.join(distDir, 'assets'),
+    target: ['chrome100'],
+    write: true,
+  });
+
+  const cssOutput = Object.keys(result.metafile.outputs).find((outputPath) => outputPath.endsWith('.css'));
+  if (!cssOutput) {
+    throw new Error('CSS build did not emit an output file.');
+  }
+
+  return outputPathToAssetRef(cssOutput);
+}
+
 async function main() {
   await cleanDir(distDir);
-  const appJs = await buildAsset('app.js', 'js');
-  const phaserMapJs = await buildAsset('phaser-map.js', 'js');
-  const stylesCss = await buildAsset('styles.css', 'css');
+  const [{ appJs, phaserMapJs }, stylesCss] = await Promise.all([
+    buildJsEntries(),
+    buildCssEntry(),
+  ]);
 
   for (const file of staticCopies) {
     await copyPathToDist(file);

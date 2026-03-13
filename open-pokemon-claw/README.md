@@ -29,3 +29,20 @@
 - `docs/PRODUCT-ROADMAP-4W.md`：4 周产品路线图
 - `docs/ARCHITECTURE-NEXT.md`：下一阶段架构与设计方案
 - `docs/WEEK1-BUILD-LIST.md`：第 1 周执行清单
+- `docs/NEXT_STEPS_2026-03-13.md`：当前状态与下一步清单
+
+## 巡检
+
+- 一键巡检脚本：`scripts/check-live-health.sh`
+- 生产验收脚本：`scripts/prod-acceptance.sh`
+
+如果你希望确认页面确实保持了实时连接，而不是只靠 HTTP 轮询：
+
+1. 打开 `https://www.wangyuye.online/open-pokemon-claw/`
+2. 检查：
+
+```bash
+curl -fsS https://www.wangyuye.online/open-pokemon-claw/api/openclaw/diagnostics | jq '.data.ws.activeConnections'
+```
+
+正常情况下，这个值应大于 `0`。

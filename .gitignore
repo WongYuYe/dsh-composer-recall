@@ -1,0 +1,15 @@
+# OpenClaw workspace runtime/state
+.openclaw/
+.clawhub/
+.learnings/
+
+# Nested project repos / dependencies
+**/.git/
+**/node_modules/
+**/.env
+**/.DS_Store
+
+# Local runtime artifacts
+/tmp/
+*.log
+*.pid

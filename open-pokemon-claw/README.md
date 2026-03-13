@@ -30,11 +30,13 @@
 - `docs/ARCHITECTURE-NEXT.md`：下一阶段架构与设计方案
 - `docs/WEEK1-BUILD-LIST.md`：第 1 周执行清单
 - `docs/NEXT_STEPS_2026-03-13.md`：当前状态与下一步清单
+- `docs/NGINX_PROD_ROUTING_2026-03-13.md`：生产路由与缓存建议
 
 ## 巡检
 
 - 一键巡检脚本：`scripts/check-live-health.sh`
 - 生产验收脚本：`scripts/prod-acceptance.sh`
+- 一键部署+巡检脚本：`scripts/deploy-frontend-prod.sh`
 
 ## 运行模式
 

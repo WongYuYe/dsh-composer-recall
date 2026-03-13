@@ -8,6 +8,8 @@
 - [ ] 在真实浏览器里挂页观察 `diagnostics.activeConnections > 0` 是否稳定保持
 - [x] 提交并发布当前稳定基线
 - [x] 建立前端双模式：开发源码直跑 / 生产轻构建 + Node 动态聚合
+- [x] 收口 Nginx 路由：API / WS / 静态资源分流处理
+- [x] 增加部署脚本：build -> restart -> health check
 
 ## 本周
 

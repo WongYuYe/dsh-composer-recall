@@ -422,6 +422,40 @@ function createDashboardHelpers(config) {
     return "standby";
   }
 
+  function deriveSystemMode(explicitMode, reachable, taskStats, taskRuntime, agentStates, gatewayOk) {
+    const normalized = String(explicitMode || "RUNNING").trim().toUpperCase() || "RUNNING";
+    const failedCount = (toFiniteNumber(taskRuntime?.queueSummary?.failed) || 0) + (toFiniteNumber(taskStats?.blocked) || 0);
+    const runningCount = (toFiniteNumber(taskRuntime?.queueSummary?.running) || 0) + (toFiniteNumber(taskStats?.doing) || 0);
+    const queuedCount = (toFiniteNumber(taskRuntime?.queueSummary?.queued) || 0) + (toFiniteNumber(taskStats?.todo) || 0);
+    const enabledAgents = Array.isArray(agentStates) ? agentStates.filter((agent) => agent?.enabled !== false) : [];
+
+    if (failedCount > 0) {
+      return "ERROR";
+    }
+
+    if (runningCount > 0) {
+      return ["RUNNING", "ACTIVE"].includes(normalized) ? normalized : "RUNNING";
+    }
+
+    if (!reachable || gatewayOk === false || (enabledAgents.length > 0 && enabledAgents.every((agent) => !agent.active))) {
+      return "OFFLINE";
+    }
+
+    if (queuedCount > 0) {
+      return "QUEUED";
+    }
+
+    if (enabledAgents.length > 0 && enabledAgents.every((agent) => agent.status === "resting")) {
+      return "RESTING";
+    }
+
+    if (enabledAgents.some((agent) => agent.status === "standby")) {
+      return "STANDBY";
+    }
+
+    return normalized === "SLEEP" ? "RESTING" : "STANDBY";
+  }
+
   function deriveAgentStatesFromStatus(status, zone, alertLevel) {
     if (Array.isArray(status?.openclaw?.agents) && status.openclaw.agents.length > 0) {
       return status.openclaw.agents.map((agent) => ({
@@ -546,13 +580,14 @@ function createDashboardHelpers(config) {
     const runningCount = toFiniteNumber(resolvedTaskRuntime?.queueSummary?.running);
     const queuedCount = toFiniteNumber(resolvedTaskRuntime?.queueSummary?.queued);
     const failedCount = toFiniteNumber(resolvedTaskRuntime?.queueSummary?.failed);
-    const mode = explicitMode || (!reachable
-      ? "OFFLINE"
-      : (runningCount || doingCount || 0) > 0
-        ? "RUNNING"
-        : (failedCount || blockedCount || 0) > 0
-          ? "ERROR"
-          : "IDLE");
+    const mode = deriveSystemMode(
+      explicitMode,
+      reachable,
+      resolvedTaskStats,
+      resolvedTaskRuntime,
+      agentStates,
+      gatewayOk,
+    );
     const contextTokens = Number(recent?.contextTokens || 0);
     const inputTokens = Number(recent?.inputTokens || 0);
     const outputTokens = Number(recent?.outputTokens || 0);

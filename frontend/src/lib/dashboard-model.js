@@ -547,17 +547,41 @@ function deriveZone(taskStats, runtime) {
   return "rest";
 }
 
-function deriveMode(baseMode, taskStats, runtime) {
+function deriveMode(baseMode, taskStats, runtime, agents = [], openclawSummary = {}) {
   const normalized = String(baseMode || "RUNNING").trim().toUpperCase() || "RUNNING";
-  if ((runtime?.queueSummary?.failed || 0) > 0 || (taskStats?.blocked || 0) > 0) {
+  const failedCount = (runtime?.queueSummary?.failed || 0) + (taskStats?.blocked || 0);
+  const runningCount = (runtime?.queueSummary?.running || 0) + (taskStats?.doing || 0);
+  const queuedCount = (runtime?.queueSummary?.queued || 0) + (taskStats?.todo || 0);
+  const enabledAgents = Array.isArray(agents) ? agents.filter((agent) => agent?.enabled !== false) : [];
+  const gatewayOk = typeof openclawSummary?.gatewayOk === "boolean"
+    ? openclawSummary.gatewayOk
+    : normalized !== "OFFLINE";
+
+  if (failedCount > 0) {
     return "ERROR";
   }
 
-  if ((runtime?.queueSummary?.running || 0) > 0 || (taskStats?.doing || 0) > 0) {
-    return normalized;
+  if (runningCount > 0) {
+    return ["RUNNING", "ACTIVE"].includes(normalized) ? normalized : "RUNNING";
   }
 
-  return "IDLE";
+  if (normalized === "OFFLINE" || !gatewayOk || (enabledAgents.length > 0 && enabledAgents.every((agent) => !agent.active))) {
+    return "OFFLINE";
+  }
+
+  if (queuedCount > 0) {
+    return "QUEUED";
+  }
+
+  if (enabledAgents.length > 0 && enabledAgents.every((agent) => agent.status === "resting")) {
+    return "RESTING";
+  }
+
+  if (enabledAgents.some((agent) => agent.status === "standby")) {
+    return "STANDBY";
+  }
+
+  return normalized === "SLEEP" ? "RESTING" : "STANDBY";
 }
 
 function buildQueueSummary(queue) {
@@ -696,7 +720,13 @@ export function buildDashboardState(statusPayload, taskStatsPayload, taskRuntime
     zone,
   );
   const mapPosition = projectPositionIntoZone(rawPosition, zone);
-  const modeRaw = deriveMode(firstDefined(root.mode, root.status, "RUNNING"), taskStats, runtime);
+  const modeRaw = deriveMode(
+    firstDefined(root.mode, root.status, "RUNNING"),
+    taskStats,
+    runtime,
+    agents,
+    openclaw.summary,
+  );
   const alertLevel = normalizeAlert(firstDefined(root.alertLevel, root.alert, root.riskLevel, "GREEN"));
   const task = buildTaskLabel(root, taskStats, runtime, idleActivityLabel, zone);
   const description = buildDescription(root, taskStats, runtime, zone, fallbackAgent?.id || "main");

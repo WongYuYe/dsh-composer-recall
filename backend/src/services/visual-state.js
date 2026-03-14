@@ -469,6 +469,40 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     return 'standby';
   }
 
+  function deriveSystemMode(mode, gatewayOk, taskStats, taskRuntime, agentItems) {
+    const normalized = String(mode || 'RUNNING').trim().toUpperCase() || 'RUNNING';
+    const failedCount = (toFiniteNumber(taskRuntime?.queueSummary?.failed) || 0) + (toFiniteNumber(taskStats?.blocked) || 0);
+    const runningCount = (toFiniteNumber(taskRuntime?.queueSummary?.running) || 0) + (toFiniteNumber(taskStats?.doing) || 0);
+    const queuedCount = (toFiniteNumber(taskRuntime?.queueSummary?.queued) || 0) + (toFiniteNumber(taskStats?.todo) || 0);
+    const enabledAgents = Array.isArray(agentItems) ? agentItems.filter((agent) => agent?.enabled !== false) : [];
+
+    if (failedCount > 0) {
+      return 'ERROR';
+    }
+
+    if (runningCount > 0) {
+      return ['RUNNING', 'ACTIVE'].includes(normalized) ? normalized : 'RUNNING';
+    }
+
+    if (!gatewayOk || (enabledAgents.length > 0 && enabledAgents.every((agent) => !agent.active))) {
+      return 'OFFLINE';
+    }
+
+    if (queuedCount > 0) {
+      return 'QUEUED';
+    }
+
+    if (enabledAgents.length > 0 && enabledAgents.every((agent) => agent.status === 'resting')) {
+      return 'RESTING';
+    }
+
+    if (enabledAgents.some((agent) => agent.status === 'standby')) {
+      return 'STANDBY';
+    }
+
+    return normalized === 'SLEEP' ? 'RESTING' : 'STANDBY';
+  }
+
   function loadConfiguredAgentsFallback() {
     const filePath = String(cfg?.openclawConfigPath || '').trim();
     if (!filePath) {
@@ -615,7 +649,7 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
       position: zone === 'work' ? { x: 13, y: 7 } : zone === 'alarm' ? { x: 20, y: 11 } : { x: 5, y: 11 },
       task,
       description: `队列：排队 ${queued} 项 · 运行中 ${running} 项 · 失败 ${failed} 项`,
-      mode: running > 0 ? 'RUNNING' : 'IDLE',
+      mode: deriveSystemMode(running > 0 ? 'RUNNING' : 'IDLE', Boolean(health?.ok), taskStats, taskRuntime, agentState.items),
       alertLevel,
       queue: queued,
       taskCount: taskStats?.taskCount ?? sessionsCount,

@@ -12,8 +12,10 @@ export const modeLabels = {
   ACTIVE: "运行中",
   IDLE: "待命中",
   STANDBY: "待命中",
+  QUEUED: "等待调度",
+  RESTING: "休息中",
   SLEEP: "休眠中",
-  OFFLINE: "离线",
+  OFFLINE: "未同步",
   ERROR: "异常",
 };
 

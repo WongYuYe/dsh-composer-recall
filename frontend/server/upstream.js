@@ -370,8 +370,12 @@ function createUpstreamClient(config, dashboardHelpers) {
       clearResponseCaches();
       return payload;
     },
-    async postTaskAction(taskId, action) {
-      const payload = await postJsonToCandidates(getTaskActionCandidates(taskId, action), config.taskRuntimeTimeoutMs, {});
+    async postTaskAction(taskId, action, body = {}) {
+      const payload = await postJsonToCandidates(
+        getTaskActionCandidates(taskId, action),
+        config.taskRuntimeTimeoutMs,
+        body,
+      );
       clearResponseCaches();
       return payload;
     },

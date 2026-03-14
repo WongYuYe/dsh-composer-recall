@@ -6,6 +6,32 @@ const {
 } = require("./utils");
 
 function createDashboardHelpers(config) {
+  function normalizeTaskRecord(task) {
+    if (!isPlainObject(task)) {
+      return null;
+    }
+
+    return {
+      taskId: task.taskId || task.id || "",
+      agentId: task.agentId || task.agent || task.ownerId || task.assignee?.agentId || "",
+      assignee: task.assignee?.name || task.assignee || task.owner || "",
+      sessionKey: task.sessionKey || task.session?.key || "",
+      title: task.title || task.name || "",
+      status: String(task.status || "").toLowerCase(),
+      priority: task.priority || "",
+      progress: toFiniteNumber(task.progress),
+      dueAt: task.dueAt || "",
+      updatedAt: task.updatedAt || "",
+      startedAt: task.startedAt || task.updatedAt || "",
+      etaSeconds: firstFiniteNumber(task.etaSeconds, task.eta),
+      failureReason: task.failureReason || "",
+      lastError: task.lastError || "",
+      availableActions: Array.isArray(task.availableActions)
+        ? task.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+        : [],
+    };
+  }
+
   function deriveTaskStatsFromPayload(payload) {
     const root = payload?.data || payload?.stats || payload;
     if (!root || typeof root !== "object") {
@@ -54,9 +80,12 @@ function createDashboardHelpers(config) {
       return null;
     }
 
-    const currentTask = taskList.find((task) => String(task?.status || "").toLowerCase() === "doing")
-      || taskList.find((task) => String(task?.status || "").toLowerCase() === "blocked")
-      || taskList[0]
+    const normalizedTaskList = taskList
+      .map((task) => normalizeTaskRecord(task))
+      .filter(Boolean);
+    const currentTask = normalizedTaskList.find((task) => task.status === "doing")
+      || normalizedTaskList.find((task) => task.status === "blocked")
+      || normalizedTaskList[0]
       || null;
 
     return {
@@ -68,23 +97,8 @@ function createDashboardHelpers(config) {
       done: firstFiniteNumber(taskCounts?.done, root.done),
       projectId: root.projectId || "",
       projectName: root.projectName || "",
-      currentTask: currentTask
-        ? {
-            taskId: currentTask.taskId || currentTask.id || "",
-            title: currentTask.title || currentTask.name || "",
-            status: String(currentTask.status || "").toLowerCase(),
-            priority: currentTask.priority || "",
-            assignee: currentTask.assignee?.name || currentTask.assignee || "",
-            progress: toFiniteNumber(currentTask.progress),
-            dueAt: currentTask.dueAt || "",
-            updatedAt: currentTask.updatedAt || "",
-            failureReason: currentTask.failureReason || "",
-            lastError: currentTask.lastError || "",
-            availableActions: Array.isArray(currentTask.availableActions)
-              ? currentTask.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
-              : [],
-          }
-        : null,
+      taskList: normalizedTaskList,
+      currentTask,
       source: config.taskStatsUrl ? "task-stats-endpoint" : "task-stats-auto",
     };
   }
@@ -170,26 +184,10 @@ function createDashboardHelpers(config) {
     }
 
     return {
-      currentTask: currentTaskRoot
-        ? {
-            taskId: currentTaskRoot.taskId || currentTaskRoot.id || "",
-            title: currentTaskRoot.title || currentTaskRoot.name || "",
-            status: String(currentTaskRoot.status || "").toLowerCase(),
-            startedAt: currentTaskRoot.startedAt || currentTaskRoot.updatedAt || "",
-            progress: toFiniteNumber(currentTaskRoot.progress),
-            etaSeconds: firstFiniteNumber(currentTaskRoot.etaSeconds, currentTaskRoot.eta),
-            failureReason: currentTaskRoot.failureReason || "",
-            lastError: currentTaskRoot.lastError || "",
-            availableActions: Array.isArray(currentTaskRoot.availableActions)
-              ? currentTaskRoot.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
-              : [],
-          }
-        : null,
+      currentTask: normalizeTaskRecord(currentTaskRoot),
       nextTask: nextTaskRoot
         ? {
-            taskId: nextTaskRoot.taskId || nextTaskRoot.id || "",
-            title: nextTaskRoot.title || nextTaskRoot.name || "",
-            status: String(nextTaskRoot.status || "").toLowerCase(),
+            ...normalizeTaskRecord(nextTaskRoot),
             scheduledAt: nextTaskRoot.scheduledAt || nextTaskRoot.dueAt || "",
           }
         : null,
@@ -218,10 +216,13 @@ function createDashboardHelpers(config) {
     return {
       currentTask: taskStats.currentTask
         ? {
-            taskId: taskStats.currentTask.taskId || "",
-            title: taskStats.currentTask.title || "",
-            status: taskStats.currentTask.status || (running > 0 ? "running" : "queued"),
-            startedAt: taskStats.currentTask.updatedAt || "",
+          taskId: taskStats.currentTask.taskId || "",
+          agentId: taskStats.currentTask.agentId || "",
+          assignee: taskStats.currentTask.assignee || "",
+          sessionKey: taskStats.currentTask.sessionKey || "",
+          title: taskStats.currentTask.title || "",
+          status: taskStats.currentTask.status || (running > 0 ? "running" : "queued"),
+          startedAt: taskStats.currentTask.updatedAt || "",
             progress: taskStats.currentTask.progress ?? null,
             etaSeconds: null,
             availableActions: taskStats.currentTask.availableActions || [],
@@ -669,16 +670,33 @@ function createDashboardHelpers(config) {
         blocked: taskStats.blocked ?? 0,
         done: taskStats.done ?? 0,
         taskList: taskStats.currentTask
-          ? [{
-              taskId: taskStats.currentTask.taskId || "",
-              title: taskStats.currentTask.title || "",
-              status: taskStats.currentTask.status || "",
-              progress: taskStats.currentTask.progress ?? 0,
-              updatedAt: taskStats.currentTask.updatedAt || "",
-              failureReason: taskStats.currentTask.failureReason || "",
-              lastError: taskStats.currentTask.lastError || "",
-              availableActions: Array.isArray(taskStats.currentTask.availableActions) ? taskStats.currentTask.availableActions : [],
-            }]
+          ? (Array.isArray(taskStats.taskList) && taskStats.taskList.length > 0
+            ? taskStats.taskList.map((task) => ({
+                taskId: task.taskId || "",
+                agentId: task.agentId || "",
+                assignee: task.assignee || "",
+                sessionKey: task.sessionKey || "",
+                title: task.title || "",
+                status: task.status || "",
+                progress: task.progress ?? 0,
+                updatedAt: task.updatedAt || "",
+                failureReason: task.failureReason || "",
+                lastError: task.lastError || "",
+                availableActions: Array.isArray(task.availableActions) ? task.availableActions : [],
+              }))
+            : [{
+                taskId: taskStats.currentTask.taskId || "",
+                agentId: taskStats.currentTask.agentId || "",
+                assignee: taskStats.currentTask.assignee || "",
+                sessionKey: taskStats.currentTask.sessionKey || "",
+                title: taskStats.currentTask.title || "",
+                status: taskStats.currentTask.status || "",
+                progress: taskStats.currentTask.progress ?? 0,
+                updatedAt: taskStats.currentTask.updatedAt || "",
+                failureReason: taskStats.currentTask.failureReason || "",
+                lastError: taskStats.currentTask.lastError || "",
+                availableActions: Array.isArray(taskStats.currentTask.availableActions) ? taskStats.currentTask.availableActions : [],
+              }])
           : [],
         page: 1,
         pageSize: taskStats.currentTask ? 1 : 0,
@@ -698,6 +716,9 @@ function createDashboardHelpers(config) {
         currentTask: taskRuntime.currentTask
           ? {
               taskId: taskRuntime.currentTask.taskId || "",
+              agentId: taskRuntime.currentTask.agentId || "",
+              assignee: taskRuntime.currentTask.assignee || "",
+              sessionKey: taskRuntime.currentTask.sessionKey || "",
               title: taskRuntime.currentTask.title || "",
               status: taskRuntime.currentTask.status || "",
               startedAt: taskRuntime.currentTask.startedAt || "",
@@ -711,6 +732,9 @@ function createDashboardHelpers(config) {
         nextTask: taskRuntime.nextTask
           ? {
               taskId: taskRuntime.nextTask.taskId || "",
+              agentId: taskRuntime.nextTask.agentId || "",
+              assignee: taskRuntime.nextTask.assignee || "",
+              sessionKey: taskRuntime.nextTask.sessionKey || "",
               title: taskRuntime.nextTask.title || "",
               status: taskRuntime.nextTask.status || "",
               scheduledAt: taskRuntime.nextTask.scheduledAt || "",

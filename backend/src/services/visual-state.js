@@ -4,6 +4,7 @@ import { toFiniteNumber } from '../lib/value-utils.js';
 
 export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
   let manualStateOverride = null;
+  let manualAgentOverrides = new Map();
   let configuredAgentsCache = {
     filePath: '',
     mtimeMs: 0,
@@ -90,24 +91,219 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     };
   }
 
-  function requireManualTask(req, reply) {
+  function normalizeAgentId(value) {
+    return String(value || '').trim();
+  }
+
+  function deriveFallbackZoneFromStatus(status) {
+    const raw = String(status?.zone || status?.currentZone || '').trim().toLowerCase();
+    if (raw.includes('alarm') || raw.includes('alert')) {
+      return 'alarm';
+    }
+    if (raw.includes('work')) {
+      return 'work';
+    }
+    if (raw.includes('rest') || raw.includes('idle')) {
+      return 'rest';
+    }
+
+    return (status?.sessions?.count ?? 0) > 0 ? 'work' : 'rest';
+  }
+
+  function deriveFallbackAlertLevel(status) {
+    const explicit = String(status?.alertLevel || status?.alert || '').trim().toUpperCase();
+    if (['GREEN', 'BLUE', 'AMBER', 'RED', 'OFFLINE'].includes(explicit)) {
+      return explicit;
+    }
+
+    return 'GREEN';
+  }
+
+  function buildAgentTaskFromState(agent) {
+    if (!agent?.id) {
+      return null;
+    }
+
+    const override = manualAgentOverrides.get(agent.id) || null;
+    const baseStatus = String(override?.taskStatus || override?.status || agent.status || '').trim().toLowerCase();
+    const taskStatus = baseStatus === 'running'
+      ? 'doing'
+      : baseStatus === 'failed'
+        ? 'blocked'
+        : baseStatus === 'idle'
+          ? 'todo'
+          : baseStatus || 'todo';
+    const title = String(
+      override?.task
+      || override?.title
+      || agent.session?.key
+      || (taskStatus === 'blocked'
+        ? '告警处理中'
+        : taskStatus === 'doing'
+          ? '执行任务中'
+          : agent.enabled === false
+            ? '已停用'
+            : '待命中'),
+    ).trim();
+    const availableActions = Array.isArray(override?.availableActions)
+      ? override.availableActions
+      : taskStatus === 'blocked'
+        ? ['retry', 'resolve']
+        : taskStatus === 'doing'
+          ? ['resolve']
+          : [];
+    const updatedAt = override?.updatedAt || agent.session?.updatedAt || new Date().toISOString();
+    const progress = override?.progress ?? agent.session?.percentUsed ?? null;
+    const failureReason = String(
+      override?.failureReason
+      || (taskStatus === 'blocked' ? '任务执行异常，等待处理。' : ''),
+    ).trim();
+    const lastError = String(
+      override?.lastError
+      || (taskStatus === 'blocked' ? `${agent.id} task is currently blocked` : ''),
+    ).trim();
+    const shouldExpose = Boolean(
+      override
+      || agent.session?.key
+      || agent.active
+      || taskStatus === 'blocked'
+      || availableActions.length > 0,
+    );
+
+    if (!shouldExpose) {
+      return null;
+    }
+
+    return {
+      taskId: String(override?.taskId || `agent-task-${agent.id}`),
+      agentId: agent.id,
+      assignee: agent.id,
+      title,
+      status: taskStatus,
+      progress,
+      updatedAt,
+      startedAt: override?.startedAt || updatedAt,
+      etaSeconds: override?.etaSeconds ?? null,
+      failureReason,
+      lastError,
+      availableActions,
+    };
+  }
+
+  function buildAgentTaskSnapshot(status, currentZone, alertLevel) {
+    const agentState = buildAgentStates(status, currentZone, alertLevel);
+    const taskList = agentState.items
+      .map((agent) => buildAgentTaskFromState(agent))
+      .filter(Boolean);
+    const currentTask = taskList.find((task) => task.status === 'blocked')
+      || taskList.find((task) => task.status === 'doing')
+      || null;
+    const nextTask = taskList.find((task) => task.status === 'todo')
+      || null;
+    const doing = taskList.filter((task) => task.status === 'doing').length;
+    const blocked = taskList.filter((task) => task.status === 'blocked').length;
+    const todo = taskList.filter((task) => task.status === 'todo').length;
+
+    return {
+      agentState,
+      taskList,
+      currentTask,
+      nextTask,
+      counts: {
+        total: taskList.length,
+        todo,
+        doing,
+        blocked,
+        done: 0,
+      },
+    };
+  }
+
+  async function resolveActionableTask(taskId, preferredAgentId = '') {
+    const normalizedTaskId = String(taskId || '').trim();
+    if (!normalizedTaskId) {
+      return null;
+    }
+
+    const manualTask = getManualTaskMeta();
+    if (manualTask?.taskId === normalizedTaskId) {
+      return {
+        taskId: normalizedTaskId,
+        agentId: normalizeAgentId(preferredAgentId),
+        taskMeta: manualTask,
+      };
+    }
+
+    const [status, health, cron] = await Promise.all([
+      rawCacheService.getStatusRaw().catch(() => null),
+      rawCacheService.getHealthRaw().catch(() => null),
+      rawCacheService.getCronRaw().catch(() => null),
+    ]);
+    const currentZone = deriveFallbackZoneFromStatus(status);
+    const alertLevel = deriveFallbackAlertLevel(status);
+    const taskStats = buildTaskStats(status, cron, currentZone, alertLevel);
+    const taskRuntime = buildTaskRuntime(health, status, currentZone, alertLevel);
+    const candidates = [
+      ...(Array.isArray(taskStats?.taskList) ? taskStats.taskList : []),
+      taskRuntime?.currentTask || null,
+      taskRuntime?.nextTask || null,
+    ].filter(Boolean);
+    const normalizedAgentId = normalizeAgentId(preferredAgentId);
+    const taskMeta = candidates.find((item) => {
+      if (item.taskId !== normalizedTaskId) {
+        return false;
+      }
+
+      return !normalizedAgentId || normalizeAgentId(item.agentId) === normalizedAgentId;
+    }) || candidates.find((item) => item.taskId === normalizedTaskId) || null;
+
+    if (!taskMeta) {
+      return null;
+    }
+
+    return {
+      taskId: normalizedTaskId,
+      agentId: normalizeAgentId(taskMeta.agentId || normalizedAgentId),
+      taskMeta,
+    };
+  }
+
+  async function requireActionableTask(req, reply) {
     const taskId = String(req.params?.taskId || '').trim();
-    const taskMeta = getManualTaskMeta();
+    const preferredAgentId = normalizeAgentId(req.body?.agentId);
 
     if (!taskId) {
       reply.code(400).send({ ok: false, error: 'taskId is required' });
       return null;
     }
 
-    if (!taskMeta || taskMeta.taskId !== taskId) {
+    const resolved = await resolveActionableTask(taskId, preferredAgentId);
+    if (!resolved) {
       reply.code(404).send({ ok: false, error: 'task not found or not actionable' });
       return null;
     }
 
-    return { taskId, taskMeta };
+    return resolved;
   }
 
-  function buildTaskStats(status, cron) {
+  function setManualAgentOverride(agentId, nextState = {}) {
+    const normalizedAgentId = normalizeAgentId(agentId);
+    if (!normalizedAgentId) {
+      return null;
+    }
+
+    manualStateOverride = null;
+    manualAgentOverrides.set(normalizedAgentId, {
+      agentId: normalizedAgentId,
+      taskId: nextState.taskId || `agent-task-${normalizedAgentId}`,
+      updatedAt: nextState.updatedAt || new Date().toISOString(),
+      ...nextState,
+    });
+    rawCacheService.clearRawCaches();
+    return manualAgentOverrides.get(normalizedAgentId);
+  }
+
+  function buildTaskStats(status, cron, currentZone = deriveFallbackZoneFromStatus(status), alertLevel = deriveFallbackAlertLevel(status)) {
     if (manualStateOverride) {
       const taskMeta = getManualTaskMeta();
       if (manualStateOverride.zone === 'work') {
@@ -167,16 +363,18 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     const sessions = status?.sessions?.count ?? 0;
     const jobs = cron?.jobs ?? [];
     const enabled = jobs.filter((job) => job.enabled).length;
+    const snapshot = buildAgentTaskSnapshot(status, currentZone, alertLevel);
 
     return sanitize({
-      taskCount: sessions,
-      total: sessions,
-      totalTasks: sessions,
-      todo: 0,
-      doing: 0,
-      blocked: 0,
+      taskCount: snapshot.counts.total || sessions,
+      total: snapshot.counts.total || sessions,
+      totalTasks: snapshot.counts.total || sessions,
+      todo: snapshot.counts.todo,
+      doing: snapshot.counts.doing,
+      blocked: snapshot.counts.blocked,
       done: 0,
-      currentTask: null,
+      currentTask: snapshot.currentTask,
+      taskList: snapshot.taskList,
       totalSessions: sessions,
       totalCronJobs: jobs.length,
       enabledCronJobs: enabled,
@@ -184,7 +382,7 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     });
   }
 
-  function buildTaskRuntime(health) {
+  function buildTaskRuntime(health, status = null, currentZone = deriveFallbackZoneFromStatus(status), alertLevel = deriveFallbackAlertLevel(status)) {
     if (manualStateOverride) {
       const taskMeta = getManualTaskMeta();
       if (manualStateOverride.zone === 'work') {
@@ -232,10 +430,16 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
       }
     }
 
+    const snapshot = buildAgentTaskSnapshot(status, currentZone, alertLevel);
+
     return sanitize({
-      currentTask: null,
-      nextTask: null,
-      queueSummary: { queued: 0, running: 0, failed: 0 },
+      currentTask: snapshot.currentTask,
+      nextTask: snapshot.nextTask,
+      queueSummary: {
+        queued: snapshot.counts.todo,
+        running: snapshot.counts.doing,
+        failed: snapshot.counts.blocked,
+      },
       uptimeSec: Math.floor(process.uptime()),
       nodeVersion: process.version,
       platform: process.platform,
@@ -326,16 +530,25 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     const items = configuredAgents.map((agent, index) => {
       const agentId = String(agent?.agentId || agent?.id || '').trim();
       const recent = recentByAgent.get(agentId) || null;
+      const override = manualAgentOverrides.get(agentId) || null;
+      const zone = String(override?.zone || defaultZones[agentId] || (index % 2 === 0 ? 'work' : 'rest'));
+      const statusValue = String(
+        override?.status
+        || inferAgentStatus(agentId, recent, currentZone, alertLevel),
+      ).trim().toLowerCase();
+
       return {
         id: agentId,
         name: agentId,
         enabled: agent?.enabled !== false,
         source: hasHeartbeatAgents ? 'heartbeat' : 'config-fallback',
-        active: Boolean(recent),
+        active: override
+          ? ['running', 'blocked', 'doing'].includes(statusValue) || Boolean(recent)
+          : Boolean(recent),
         heartbeatEvery: agent?.every || '',
         heartbeatEveryMs: agent?.everyMs ?? null,
-        zone: defaultZones[agentId] || (index % 2 === 0 ? 'work' : 'rest'),
-        status: inferAgentStatus(agentId, recent, currentZone, alertLevel),
+        zone,
+        status: statusValue,
         session: recent ? {
           key: recent.key || '',
           updatedAt: recent.updatedAt || null,
@@ -440,8 +653,10 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
       rawCacheService.getHealthRaw(),
       rawCacheService.getCronRaw(),
     ]);
-    const taskStats = buildTaskStats(status, cron);
-    const taskRuntime = buildTaskRuntime(health);
+    const currentZone = deriveFallbackZoneFromStatus(status);
+    const alertLevel = deriveFallbackAlertLevel(status);
+    const taskStats = buildTaskStats(status, cron, currentZone, alertLevel);
+    const taskRuntime = buildTaskRuntime(health, status, currentZone, alertLevel);
     return buildVisualStatus({ status, health, cron, taskStats, taskRuntime });
   }
 
@@ -451,12 +666,14 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
 
   function setManualStateOverride(nextState) {
     manualStateOverride = nextState;
+    manualAgentOverrides = new Map();
     rawCacheService.clearRawCaches();
     return manualStateOverride;
   }
 
   function clearManualStateOverride() {
     manualStateOverride = null;
+    manualAgentOverrides = new Map();
     rawCacheService.clearRawCaches();
   }
 
@@ -467,8 +684,9 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
     clearManualStateOverride,
     createManualState,
     getManualStateOverride,
+    requireActionableTask,
     rawCacheService,
-    requireManualTask,
+    setManualAgentOverride,
     setManualStateOverride,
   };
 }

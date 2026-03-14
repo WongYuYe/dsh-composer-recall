@@ -229,7 +229,7 @@ export function useOpenClawDashboard() {
     taskActionInFlight.value,
     taskActionMessage.value,
   ));
-  const criticalMessage = computed(() => buildCriticalMessage(viewState.value));
+  const criticalMessage = computed(() => buildCriticalMessage(viewState.value) || latestError.value);
   const syncBadgeText = computed(() => syncBadgeLabels[connectionState.value] || syncBadgeLabels.offline);
   const syncBadgeClass = computed(() => `sync-badge sync-badge--${connectionState.value}`);
   const clockText = computed(() => `${formatClock(now.value)} 北京时间`);
@@ -254,8 +254,8 @@ export function useOpenClawDashboard() {
   });
   const zoneName = computed(() => viewState.value?.zoneName || "连接中");
   const taskName = computed(() => viewState.value?.task || "正在同步状态");
-  const taskSummary = computed(() => latestError.value || viewState.value?.description || "等待后台返回最新状态。");
-  const mapBanner = computed(() => latestError.value || (viewState.value
+  const taskSummary = computed(() => viewState.value?.description || "等待后台返回最新状态。");
+  const mapBanner = computed(() => (viewState.value
     ? `${viewState.value.zoneName} · ${viewState.value.description}`
     : "等待状态同步后更新地图视图。"));
   const phaserState = computed(() => {
@@ -437,7 +437,7 @@ export function useOpenClawDashboard() {
         buildAbsoluteUrl(`./api/tasks/${encodeURIComponent(task.taskId)}/${action}`),
         {
           method: "POST",
-          body: "{}",
+          body: JSON.stringify({ agentId: focusedAgentId.value }),
         },
       );
       taskActionMessage.value = action === "retry"

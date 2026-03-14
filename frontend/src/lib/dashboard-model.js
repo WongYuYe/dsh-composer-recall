@@ -293,9 +293,10 @@ export function normalizeTaskStatsPayload(payload) {
         ? root.tasks
         : [];
 
-  const currentTask = list.find((item) => String(item?.status || "").toLowerCase() === "doing")
-    || list.find((item) => String(item?.status || "").toLowerCase() === "blocked")
-    || null;
+  const taskList = list
+    .map((item) => normalizeTaskRecord(item))
+    .filter(Boolean);
+  const currentTask = pickCurrentTask(taskList);
 
   return {
     total: safeNumber(firstDefined(root.total, root.taskCount, list.length)) ?? 0,
@@ -303,21 +304,8 @@ export function normalizeTaskStatsPayload(payload) {
     doing: safeNumber(firstDefined(root.doing, root.inProgress)) ?? 0,
     blocked: safeNumber(root.blocked) ?? 0,
     done: safeNumber(root.done) ?? 0,
-    taskList: list,
-    currentTask: currentTask
-      ? {
-          taskId: currentTask.taskId || currentTask.id || "",
-          title: currentTask.title || currentTask.name || "",
-          status: String(currentTask.status || "").toLowerCase(),
-          progress: safeNumber(currentTask.progress),
-          updatedAt: currentTask.updatedAt || "",
-          failureReason: String(currentTask.failureReason || "").trim(),
-          lastError: String(currentTask.lastError || "").trim(),
-          availableActions: Array.isArray(currentTask.availableActions)
-            ? currentTask.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
-            : [],
-        }
-      : null,
+    taskList,
+    currentTask,
   };
 }
 
@@ -331,35 +319,169 @@ export function normalizeTaskRuntimePayload(payload) {
     ? root.queueSummary
     : root;
 
-  const normalizeTask = (task) => {
-    if (!task || typeof task !== "object") {
-      return null;
-    }
-
-    return {
-      taskId: task.taskId || task.id || "",
-      title: task.title || task.name || "",
-      status: String(task.status || "").toLowerCase(),
-      startedAt: task.startedAt || task.updatedAt || "",
-      progress: safeNumber(task.progress),
-      etaSeconds: safeNumber(firstDefined(task.etaSeconds, task.eta)),
-      failureReason: String(task.failureReason || "").trim(),
-      lastError: String(task.lastError || "").trim(),
-      availableActions: Array.isArray(task.availableActions)
-        ? task.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
-        : [],
-    };
-  };
-
   return {
-    currentTask: normalizeTask(root.currentTask),
-    nextTask: normalizeTask(root.nextTask),
+    currentTask: normalizeTaskRecord(root.currentTask),
+    nextTask: normalizeTaskRecord(root.nextTask),
     queueSummary: {
       queued: safeNumber(firstDefined(queueSummary.queued, root.queued)) ?? 0,
       running: safeNumber(firstDefined(queueSummary.running, root.running)) ?? 0,
       failed: safeNumber(firstDefined(queueSummary.failed, root.failed)) ?? 0,
     },
   };
+}
+
+function normalizeTaskRecord(task) {
+  if (!task || typeof task !== "object") {
+    return null;
+  }
+
+  return {
+    taskId: task.taskId || task.id || "",
+    agentId: String(
+      firstDefined(
+        task.agentId,
+        task.agent,
+        task.ownerId,
+        task.assignee?.agentId,
+        "",
+      ) || "",
+    ).trim(),
+    assignee: String(firstDefined(task.assignee?.name, task.assignee, task.owner, "") || "").trim(),
+    sessionKey: String(firstDefined(task.sessionKey, task.session?.key, "") || "").trim(),
+    title: task.title || task.name || "",
+    status: String(task.status || "").toLowerCase(),
+    progress: safeNumber(task.progress),
+    updatedAt: task.updatedAt || "",
+    startedAt: task.startedAt || task.updatedAt || "",
+    etaSeconds: safeNumber(firstDefined(task.etaSeconds, task.eta)),
+    failureReason: String(task.failureReason || "").trim(),
+    lastError: String(task.lastError || "").trim(),
+    availableActions: Array.isArray(task.availableActions)
+      ? task.availableActions.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+      : [],
+  };
+}
+
+function pickCurrentTask(taskList) {
+  if (!Array.isArray(taskList) || taskList.length === 0) {
+    return null;
+  }
+
+  return taskList.find((item) => item.status === "blocked")
+    || taskList.find((item) => item.status === "failed")
+    || taskList.find((item) => item.status === "doing")
+    || taskList.find((item) => item.status === "running")
+    || taskList[0]
+    || null;
+}
+
+function normalizeComparableText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function taskBelongsToAgent(task, agent) {
+  if (!task || !agent?.id) {
+    return false;
+  }
+
+  const agentId = normalizeComparableText(agent.id);
+  if (!agentId) {
+    return false;
+  }
+
+  const explicitOwner = normalizeComparableText(firstDefined(task.agentId, task.assignee));
+  if (explicitOwner && explicitOwner === agentId) {
+    return true;
+  }
+
+  const taskId = normalizeComparableText(task.taskId);
+  if (taskId === `agent-task-${agentId}`) {
+    return true;
+  }
+
+  const sessionKey = normalizeComparableText(firstDefined(task.sessionKey, agent.session?.key));
+  if (sessionKey && normalizeComparableText(task.sessionKey) === sessionKey) {
+    return true;
+  }
+
+  return Boolean(sessionKey) && normalizeComparableText(task.title).includes(sessionKey);
+}
+
+function collectTaskCandidates(state) {
+  if (!state) {
+    return [];
+  }
+
+  const seen = new Set();
+  const items = [
+    state.runtime?.currentTask || null,
+    state.runtime?.nextTask || null,
+    state.taskStats?.currentTask || null,
+    ...(Array.isArray(state.taskStats?.taskList) ? state.taskStats.taskList : []),
+  ].filter(Boolean);
+
+  return items.filter((task) => {
+    const key = String(task.taskId || `${task.agentId}:${task.title}:${task.status}`).trim();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function formatEtaLabel(seconds) {
+  const numeric = safeNumber(seconds);
+  if (numeric === null || numeric < 0) {
+    return "";
+  }
+
+  if (numeric < 60) {
+    return `${Math.round(numeric)} 秒`;
+  }
+
+  const minutes = Math.floor(numeric / 60);
+  const remainSeconds = Math.round(numeric % 60);
+  return remainSeconds > 0 ? `${minutes} 分 ${remainSeconds} 秒` : `${minutes} 分钟`;
+}
+
+function buildTaskDescription(task, fallback) {
+  if (!task) {
+    return fallback;
+  }
+
+  const parts = [];
+  if (task.failureReason) {
+    parts.push(`原因：${task.failureReason}`);
+  }
+  if (task.lastError) {
+    parts.push(`错误：${task.lastError}`);
+  }
+  if (safeNumber(task.progress) !== null) {
+    parts.push(`进度 ${Math.round(Number(task.progress))}%`);
+  }
+  const etaLabel = formatEtaLabel(task.etaSeconds);
+  if (etaLabel) {
+    parts.push(`预计 ${etaLabel}`);
+  }
+
+  return parts.join(" · ") || fallback;
+}
+
+function resolveFocusedTask(state, focusedAgent, primaryAgentId) {
+  if (!state || !focusedAgent) {
+    return null;
+  }
+
+  const candidates = collectTaskCandidates(state);
+  const matchedTask = candidates.find((task) => taskBelongsToAgent(task, focusedAgent)) || null;
+  if (matchedTask) {
+    return matchedTask;
+  }
+
+  return focusedAgent.id === primaryAgentId
+    ? state.actionableTask || state.runtime?.currentTask || state.taskStats?.currentTask || null
+    : null;
 }
 
 function deriveZone(taskStats, runtime) {
@@ -585,6 +707,7 @@ export function buildFocusedViewState(state, focusedAgentId) {
   const ownsGlobalTask = focusedAgent.id === primaryAgentId;
   const focusedZone = normalizeZone(focusedAgent.zone) || state.zone || "rest";
   const sharesPrimaryZone = focusedZone === state.zone;
+  const focusedTask = resolveFocusedTask(state, focusedAgent, primaryAgentId);
   const position = focusedAgent.position
     ? cloneValue(focusedAgent.position)
     : sharesPrimaryZone
@@ -596,21 +719,30 @@ export function buildFocusedViewState(state, focusedAgentId) {
       ? cloneValue(state.mapPosition)
       : projectPositionIntoZone(position, focusedZone);
   const scene = sharesPrimaryZone ? state.scene : "room";
-  const task = focusedAgent.session?.key
-    ? `会话中：${focusedAgent.session.key}`
-    : ownsGlobalTask
-      ? state.task
-      : buildAgentFallbackTask(focusedAgent, focusedZone);
-  const description = focusedAgent.session?.key
-    ? `当前会话：${focusedAgent.session.key}`
-    : ownsGlobalTask
-      ? state.description
-      : buildAgentFallbackDescription(focusedAgent, focusedZone);
+  const task = focusedTask?.title
+    ? focusedTask.title
+    : focusedAgent.session?.key
+      ? `会话中：${focusedAgent.session.key}`
+      : ownsGlobalTask
+        ? state.task
+        : buildAgentFallbackTask(focusedAgent, focusedZone);
+  const fallbackDescription = ownsGlobalTask
+    ? state.description
+    : buildAgentFallbackDescription(focusedAgent, focusedZone);
+  const description = focusedTask
+    ? buildTaskDescription(focusedTask, fallbackDescription)
+    : focusedAgent.session?.key
+      ? `当前会话：${focusedAgent.session.key}`
+      : fallbackDescription;
+  const actionableTask = focusedTask?.taskId && focusedTask.availableActions?.length
+    ? cloneValue(focusedTask)
+    : null;
 
   return {
     ...state,
     focusedAgentId: focusedAgent.id,
     focusedAgent,
+    focusedTask,
     primaryAgentId,
     ownsGlobalTask,
     zone: focusedZone,
@@ -621,6 +753,7 @@ export function buildFocusedViewState(state, focusedAgentId) {
     mapPosition,
     task,
     description,
+    actionableTask,
     openclaw: {
       ...(state.openclaw || {}),
       agents: state.agents,
@@ -642,17 +775,16 @@ export function buildTaskDetail(viewState) {
   }
 
   const focusedAgent = viewState.focusedAgent;
-  const ownsGlobalTask = viewState.ownsGlobalTask !== false;
-  const queue = ownsGlobalTask ? viewState.runtime?.queueSummary || null : null;
-  const task = focusedAgent?.session?.key
+  const queue = viewState.ownsGlobalTask !== false ? viewState.runtime?.queueSummary || null : null;
+  const task = viewState.actionableTask
+    || viewState.focusedTask
+    || (focusedAgent?.session?.key
     ? {
         status: focusedAgent.status || "active",
         title: focusedAgent.session.key,
         progress: focusedAgent.session.percentUsed,
       }
-    : ownsGlobalTask
-      ? viewState.actionableTask || viewState.runtime?.currentTask || null
-      : null;
+    : null);
 
   if (!task && !queue && !focusedAgent?.session?.key) {
     return {
@@ -696,7 +828,7 @@ export function buildTaskDetail(viewState) {
 }
 
 export function buildTaskActions(viewState, inFlight, taskActionMessage) {
-  const task = viewState?.ownsGlobalTask === false ? null : viewState?.actionableTask || null;
+  const task = viewState?.actionableTask || null;
   const actions = Array.isArray(task?.availableActions) ? task.availableActions : [];
   const showRetry = actions.includes("retry");
   const showResolve = actions.includes("resolve");
@@ -721,7 +853,7 @@ export function buildCriticalMessage(viewState) {
     return "";
   }
 
-  const task = viewState.actionableTask || viewState.runtime?.currentTask || null;
+  const task = viewState.actionableTask || viewState.focusedTask || viewState.runtime?.currentTask || null;
   const text = `${task?.failureReason || ""} ${task?.lastError || ""} ${viewState.description || ""}`.toLowerCase();
   const critical = viewState.alertLevel === "RED" || /failed|error|timeout|blocked|waiting_user|tool_error/.test(text);
   if (!critical) {

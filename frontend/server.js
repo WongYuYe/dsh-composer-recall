@@ -175,33 +175,54 @@ async function main() {
     if (taskActionMatch) {
       const [, encodedTaskId, action] = taskActionMatch;
       const taskId = decodeURIComponent(encodedTaskId);
+      let raw = "";
+      req.on("data", (chunk) => {
+        raw += chunk.toString();
+        if (raw.length > 1024 * 1024) {
+          req.destroy(new Error("payload too large"));
+        }
+      });
 
-      upstreamClient.postTaskAction(taskId, action)
-        .then(async (payload) => {
-          streamService.scheduleRefresh(`task-${action}`);
-          const [taskRuntime, taskStats] = await Promise.all([
-            upstreamClient.fetchTaskRuntimeAsync().catch(() => null),
-            upstreamClient.fetchTaskStatsAsync().catch(() => null),
-          ]);
+      req.on("end", () => {
+        let body = {};
+        try {
+          body = raw ? JSON.parse(raw) : {};
+        } catch {
+          sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+          return;
+        }
 
-          sendJson(res, 200, {
-            ok: true,
-            data: {
-              action,
-              taskId,
-              upstream: payload?.data || payload || {},
-              runtime: taskRuntimeResponseBody(taskRuntime)?.data || null,
-              stats: taskStatsResponseBody(taskStats)?.data || null,
-            },
+        upstreamClient.postTaskAction(taskId, action, body)
+          .then(async (payload) => {
+            streamService.scheduleRefresh(`task-${action}`);
+            const [taskRuntime, taskStats] = await Promise.all([
+              upstreamClient.fetchTaskRuntimeAsync().catch(() => null),
+              upstreamClient.fetchTaskStatsAsync().catch(() => null),
+            ]);
+
+            sendJson(res, 200, {
+              ok: true,
+              data: {
+                action,
+                taskId,
+                upstream: payload?.data || payload || {},
+                runtime: taskRuntimeResponseBody(taskRuntime)?.data || null,
+                stats: taskStatsResponseBody(taskStats)?.data || null,
+              },
+            });
+          })
+          .catch((error) => {
+            sendJson(res, 502, {
+              ok: false,
+              error: "Failed to apply task action",
+              detail: error?.message || "Unknown error",
+            });
           });
-        })
-        .catch((error) => {
-          sendJson(res, 502, {
-            ok: false,
-            error: "Failed to apply task action",
-            detail: error?.message || "Unknown error",
-          });
-        });
+      });
+
+      req.on("error", (error) => {
+        sendJson(res, 400, { ok: false, error: error?.message || "Request read failed" });
+      });
       return;
     }
 

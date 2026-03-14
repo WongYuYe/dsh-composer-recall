@@ -50,6 +50,8 @@ function discoverOpenclawApiKeys() {
   const candidates = [
     path.join(homeDir, ".openclaw", "workspace", "openclaw-visual-backend", ".env"),
     path.join(frontendRoot, "..", "openclaw-visual-backend", ".env"),
+    path.join(frontendRoot, "..", "backend", ".env"),
+    path.join(frontendRoot, "..", "backend", ".env.local"),
   ];
 
   for (const candidate of candidates) {

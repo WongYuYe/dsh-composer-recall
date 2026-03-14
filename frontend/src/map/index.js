@@ -103,6 +103,11 @@ import {
       { x: 13.4, y: 14.1 },
     ],
   };
+  const ROOM_AGENT_ROAM_BOUNDS = {
+    rest: { minX: 6.6, maxX: 16.1, minY: 11.8, maxY: 14.4 },
+    work: { minX: 7.0, maxX: 15.7, minY: 10.8, maxY: 13.7 },
+    alarm: { minX: 7.0, maxX: 15.8, minY: 10.8, maxY: 13.8 },
+  };
 
   function createRoomTextures(scene) {
     createCanvasTexture(scene, "room-floor-rest", 32, 32, (ctx) => {
@@ -564,6 +569,63 @@ import {
       return this.getRoomRemoteAgentPosition(agent, slotIndex);
     }
 
+    getTownRoamBounds(zone) {
+      const rect = TOWN_ZONE_RECTS[zone] || TOWN_ZONE_RECTS.rest;
+      return {
+        minX: rect.x + 0.8,
+        maxX: rect.x + rect.width - 0.8,
+        minY: rect.y + 0.9,
+        maxY: rect.y + rect.height - 0.9,
+      };
+    }
+
+    getRoomRoamBounds(zone) {
+      return ROOM_AGENT_ROAM_BOUNDS[zone] || ROOM_AGENT_ROAM_BOUNDS.rest;
+    }
+
+    getRandomRoamPoint(bounds, currentPoint = null, fallbackPoint = null) {
+      if (!bounds) {
+        return fallbackPoint ? { ...fallbackPoint } : null;
+      }
+
+      const minDistance = 0.32;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const point = {
+          x: Phaser.Math.FloatBetween(bounds.minX, bounds.maxX),
+          y: Phaser.Math.FloatBetween(bounds.minY, bounds.maxY),
+        };
+        if (!currentPoint) {
+          return point;
+        }
+        if (Math.abs(point.x - currentPoint.x) >= minDistance || Math.abs(point.y - currentPoint.y) >= minDistance) {
+          return point;
+        }
+      }
+
+      return fallbackPoint ? { ...fallbackPoint } : {
+        x: bounds.minX,
+        y: bounds.minY,
+      };
+    }
+
+    getWorldTilePosition(worldX, worldY, isTownView) {
+      if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) {
+        return null;
+      }
+
+      if (isTownView) {
+        return {
+          x: clamp((worldX / TILE_SIZE) - 0.5, 0, TOWN_TILES - 1),
+          y: clamp((worldY / TILE_SIZE) - 1, 0, TOWN_TILES - 1),
+        };
+      }
+
+      return {
+        x: clamp((worldX / ROOM_TILE_SIZE) - 0.5, 0, ROOM_TILES_W - 1),
+        y: clamp((worldY / ROOM_TILE_SIZE) - 1, 0, ROOM_TILES_H - 1),
+      };
+    }
+
     getAgentMarkerAlpha(agent, isFocused = false) {
       if (agent?.enabled === false) {
         return isFocused ? 0.42 : 0.2;
@@ -777,17 +839,6 @@ import {
       return profiles[agentId] || fallback;
     }
 
-    buildAgentRoamPoints(tilePosition, offsets) {
-      const normalizedOffsets = Array.isArray(offsets) && offsets.length > 0
-        ? offsets
-        : [{ x: 0, y: 0 }];
-
-      return normalizedOffsets.map((offset) => ({
-        x: tilePosition.x + offset.x,
-        y: tilePosition.y + offset.y,
-      }));
-    }
-
     setAgentMarkerIdleFrame(sprite, direction = "front") {
       const idleFrame = {
         left: "misa-left",
@@ -799,21 +850,23 @@ import {
       sprite.setFrame(idleFrame);
     }
 
-    startAgentMarkerRoam(container, sprite, roamPoints, roamProfile, isTownView) {
-      if (!container || !sprite || !Array.isArray(roamPoints) || roamPoints.length <= 1) {
+    startAgentMarkerRoam(container, sprite, spawnPoint, roamBounds, roamProfile, isTownView) {
+      if (!container || !sprite || !spawnPoint || !roamBounds) {
         return;
       }
 
       const durationMs = Math.max(Number(roamProfile?.durationMs) || 1500, 320);
       const pauseMs = Math.max(Number(roamProfile?.pauseMs) || 520, 120);
-      let cursor = 1;
       const scheduleNext = () => {
         if (!container.scene) {
           return;
         }
 
-        const point = roamPoints[cursor % roamPoints.length];
-        cursor += 1;
+        const currentPoint = this.getWorldTilePosition(container.x, container.y, isTownView) || spawnPoint;
+        const point = this.getRandomRoamPoint(roamBounds, currentPoint, spawnPoint);
+        if (!point) {
+          return;
+        }
         const { x, y } = this.getWorldPosition(point, isTownView);
         const dx = x - container.x;
         const dy = y - container.y;
@@ -892,8 +945,10 @@ import {
             );
           const isRemoteAgent = !isTownView && agent.zone !== activeZone;
           const roamProfile = this.getAgentRoamProfile(agent, isTownView, isRemoteAgent);
-          const roamPoints = this.buildAgentRoamPoints(tilePosition, roamProfile.offsets);
-          const spawnPoint = roamPoints[0] || tilePosition;
+          const roamBounds = isTownView
+            ? this.getTownRoamBounds(agent.zone || activeZone)
+            : this.getRoomRoamBounds(activeZone);
+          const spawnPoint = tilePosition;
           const { x, y } = this.getWorldPosition(spawnPoint, isTownView);
           const accent = this.getAgentAccent(agent.zone);
           const markerDepth = isTownView ? 87 : 94;
@@ -931,18 +986,11 @@ import {
             markerAlpha,
           });
 
-          if (isFocused) {
-            this.stopAgentMarkerMotion(container);
-            if (container.__renderKey !== renderKey) {
-              container.setPosition(x, y);
-              container.__renderKey = renderKey;
-            }
-            this.syncFocusedMarkerToRobot();
-          } else if (container.__renderKey !== renderKey) {
+          if (container.__renderKey !== renderKey) {
             this.stopAgentMarkerMotion(container);
             container.setPosition(x, y);
             this.setAgentMarkerIdleFrame(container.__agentSprite);
-            this.startAgentMarkerRoam(container, container.__agentSprite, roamPoints, roamProfile, isTownView);
+            this.startAgentMarkerRoam(container, container.__agentSprite, spawnPoint, roamBounds, roamProfile, isTownView);
             container.__renderKey = renderKey;
           }
 

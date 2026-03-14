@@ -231,6 +231,8 @@ function normalizeAgent(agent) {
     id: String(agent?.id || "").trim(),
     name: String(agent?.name || agent?.id || "").trim(),
     enabled: agent?.enabled !== false,
+    source: String(agent?.source || "").trim() || "unknown",
+    active: agent?.active === true || Boolean(agent?.session),
     zone,
     status: String(agent?.status || "idle").trim().toLowerCase() || "idle",
     heartbeatEvery: String(agent?.heartbeatEvery || "").trim(),
@@ -510,6 +512,9 @@ export function buildDashboardState(statusPayload, taskStatsPayload, taskRuntime
       agents,
       runtime,
       tasks: taskStats,
+      summary: openclaw.summary && typeof openclaw.summary === "object"
+        ? { ...openclaw.summary }
+        : {},
     },
   };
 }
@@ -670,29 +675,4 @@ export function buildCriticalMessage(viewState) {
   }
 
   return task?.failureReason || task?.lastError || viewState.description || "建议尽快检查并处理当前异常。";
-}
-
-export function classifyTimelineSeverity(text = "", zone = "system") {
-  const value = String(text || "").toLowerCase();
-  if (zone === "alarm" || /failed|error|timeout|blocked|waiting_user|tool_error|离线|断开/.test(value)) {
-    return "error";
-  }
-  if (/warning|注意|重连|同步|queued/.test(value)) {
-    return "warn";
-  }
-  return "info";
-}
-
-export function buildTimelineItems(viewState) {
-  if (!viewState) {
-    return [];
-  }
-
-  return (viewState.logs || []).map((entry, index) => ({
-    id: `${entry.time || "time"}-${index}`,
-    zone: zoneLabels[entry.zone] || entry.zone || "系统",
-    time: formatShortTime(entry.time),
-    message: entry.message,
-    severity: classifyTimelineSeverity(entry.message, entry.zone),
-  }));
 }

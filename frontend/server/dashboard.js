@@ -405,7 +405,11 @@ function createDashboardHelpers(config) {
 
   function deriveAgentStatesFromStatus(status, zone, alertLevel) {
     if (Array.isArray(status?.openclaw?.agents) && status.openclaw.agents.length > 0) {
-      return status.openclaw.agents;
+      return status.openclaw.agents.map((agent) => ({
+        ...agent,
+        source: agent?.source || "status-payload",
+        active: agent?.active === true || Boolean(agent?.session),
+      }));
     }
 
     const configuredAgents = Array.isArray(status?.heartbeat?.agents) ? status.heartbeat.agents : [];
@@ -441,6 +445,8 @@ function createDashboardHelpers(config) {
         id: agentId,
         name: agentId,
         enabled: Boolean(agent?.enabled),
+        source: "heartbeat",
+        active: Boolean(recent),
         heartbeatEvery: agent?.every || "",
         heartbeatEveryMs: agent?.everyMs ?? null,
         zone: defaultZones[agentId] || (index % 2 === 0 ? "work" : "rest"),
@@ -477,7 +483,7 @@ function createDashboardHelpers(config) {
     );
   }
 
-  function toDashboardPayload(status, taskStats, taskRuntime) {
+  function toDashboardPayload(status, taskStats, taskRuntime, sourceState = {}) {
     const alertLevel = mapAlertLevel(status);
     const resolvedTaskStats = taskStats || deriveTaskStatsFromStatus(status) || {
       taskCount: 0,
@@ -500,6 +506,27 @@ function createDashboardHelpers(config) {
     const runtimeSummary = buildRuntimeSummary(resolvedTaskRuntime);
     const taskSummary = buildTaskSummary(resolvedTaskStats);
     const agentStates = deriveAgentStatesFromStatus(status, zone, alertLevel);
+    const activeAgentCount = agentStates.filter((agent) => agent.active).length;
+    const agentSources = [...new Set(agentStates.map((agent) => String(agent?.source || "").trim()).filter(Boolean))];
+    const summaryRoot = status?.openclaw?.summary && typeof status.openclaw.summary === "object"
+      ? status.openclaw.summary
+      : {};
+    const agentSource = status?.openclaw?.summary?.agentSource
+      || (agentSources.length === 1 ? agentSources[0] : agentSources[0] || "status-payload");
+    const gatewayOk = typeof summaryRoot.gatewayOk === "boolean"
+      ? summaryRoot.gatewayOk
+      : sourceState.statusFetchOk && status?.gateway?.reachable !== undefined
+        ? Boolean(status.gateway.reachable)
+        : null;
+    const rawStatusAvailable = typeof summaryRoot.rawStatusAvailable === "boolean"
+      ? summaryRoot.rawStatusAvailable
+      : sourceState.statusFetchOk ?? null;
+    const rawHealthAvailable = typeof summaryRoot.rawHealthAvailable === "boolean"
+      ? summaryRoot.rawHealthAvailable
+      : null;
+    const rawCronAvailable = typeof summaryRoot.rawCronAvailable === "boolean"
+      ? summaryRoot.rawCronAvailable
+      : null;
     const doingCount = toFiniteNumber(resolvedTaskStats?.doing);
     const blockedCount = toFiniteNumber(resolvedTaskStats?.blocked);
     const runningCount = toFiniteNumber(resolvedTaskRuntime?.queueSummary?.running);
@@ -597,6 +624,18 @@ function createDashboardHelpers(config) {
         tasks: resolvedTaskStats,
         runtime: resolvedTaskRuntime,
         gateway: status?.gateway || null,
+        summary: {
+          ...summaryRoot,
+          gatewayOk,
+          agentSource,
+          configuredAgentCount: summaryRoot.configuredAgentCount ?? agentStates.length,
+          activeAgentCount: summaryRoot.activeAgentCount ?? activeAgentCount,
+          rawStatusAvailable,
+          rawHealthAvailable,
+          rawCronAvailable,
+          taskSource: resolvedTaskStats?.source || "",
+          runtimeSource: resolvedTaskRuntime?.source || "",
+        },
         sessions: {
           count: status?.sessions?.count || 0,
           latest: recent

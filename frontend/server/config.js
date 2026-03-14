@@ -64,11 +64,13 @@ function createConfig() {
   const upstreamBaseUrl = String(process.env.OPENCLAW_UPSTREAM_BASE_URL || defaultUpstreamBaseUrl)
     .trim()
     .replace(/\/+$/, "");
+  const isProduction = process.env.NODE_ENV === "production";
   const taskStatsAuthToken = process.env.OPENCLAW_TASK_STATS_AUTH_TOKEN || "";
 
   return {
     frontendRoot,
     defaultStaticRoot,
+    isProduction,
     host: process.env.HOST || "127.0.0.1",
     port: Number(process.env.PORT || 3008),
     robotName: "小龙虾",

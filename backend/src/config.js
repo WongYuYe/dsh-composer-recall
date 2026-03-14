@@ -1,9 +1,15 @@
 export function createConfig() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const defaultOpenClawConfigPath = homeDir
+    ? `${homeDir.replace(/[\\/]+$/, '')}/.openclaw/openclaw.json`
+    : '';
+
   return {
     port: Number(process.env.PORT || 8787),
     host: process.env.HOST || '127.0.0.1',
     openclawBin: process.env.OPENCLAW_BIN || 'openclaw',
     openclawProfile: process.env.OPENCLAW_PROFILE || '',
+    openclawConfigPath: process.env.OPENCLAW_CONFIG_PATH || defaultOpenClawConfigPath,
     apiKey: process.env.API_KEY || '',
     requireApiKey: String(process.env.REQUIRE_API_KEY || 'true').toLowerCase() !== 'false',
     corsOrigin: process.env.CORS_ORIGIN || '*',

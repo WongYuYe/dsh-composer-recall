@@ -1,7 +1,14 @@
+import fs from 'node:fs';
+
 import { toFiniteNumber } from '../lib/value-utils.js';
 
-export function createVisualStateService({ sanitize, rawCacheService }) {
+export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
   let manualStateOverride = null;
+  let configuredAgentsCache = {
+    filePath: '',
+    mtimeMs: 0,
+    agents: [],
+  };
 
   function createManualState(zone, overrides = {}) {
     const updatedAt = overrides.updatedAt || new Date().toISOString();
@@ -254,8 +261,50 @@ export function createVisualStateService({ sanitize, rawCacheService }) {
     return 'idle';
   }
 
+  function loadConfiguredAgentsFallback() {
+    const filePath = String(cfg?.openclawConfigPath || '').trim();
+    if (!filePath) {
+      return [];
+    }
+
+    try {
+      const stats = fs.statSync(filePath);
+      if (
+        configuredAgentsCache.filePath === filePath
+        && configuredAgentsCache.mtimeMs === stats.mtimeMs
+        && Array.isArray(configuredAgentsCache.agents)
+      ) {
+        return configuredAgentsCache.agents;
+      }
+
+      const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const list = Array.isArray(payload?.agents?.list) ? payload.agents.list : [];
+      const agents = list
+        .map((agent) => ({
+          agentId: String(agent?.agentId || agent?.id || '').trim(),
+          enabled: agent?.enabled !== false,
+          every: agent?.every || '',
+          everyMs: agent?.everyMs ?? null,
+        }))
+        .filter((agent) => agent.agentId);
+
+      configuredAgentsCache = {
+        filePath,
+        mtimeMs: stats.mtimeMs,
+        agents,
+      };
+
+      return agents;
+    } catch {
+      return configuredAgentsCache.filePath === filePath ? configuredAgentsCache.agents : [];
+    }
+  }
+
   function buildAgentStates(status, currentZone, alertLevel) {
-    const configuredAgents = Array.isArray(status?.heartbeat?.agents) ? status.heartbeat.agents : [];
+    const hasHeartbeatAgents = Array.isArray(status?.heartbeat?.agents) && status.heartbeat.agents.length > 0;
+    const configuredAgents = hasHeartbeatAgents
+      ? status.heartbeat.agents
+      : loadConfiguredAgentsFallback();
     const recentSessions = Array.isArray(status?.sessions?.recent) ? status.sessions.recent : [];
     const recentByAgent = new Map();
 
@@ -274,13 +323,15 @@ export function createVisualStateService({ sanitize, rawCacheService }) {
       ops: currentZone === 'alarm' ? 'alarm' : 'rest',
     };
 
-    return configuredAgents.map((agent, index) => {
-      const agentId = String(agent?.agentId || '').trim();
+    const items = configuredAgents.map((agent, index) => {
+      const agentId = String(agent?.agentId || agent?.id || '').trim();
       const recent = recentByAgent.get(agentId) || null;
       return {
         id: agentId,
         name: agentId,
-        enabled: Boolean(agent?.enabled),
+        enabled: agent?.enabled !== false,
+        source: hasHeartbeatAgents ? 'heartbeat' : 'config-fallback',
+        active: Boolean(recent),
         heartbeatEvery: agent?.every || '',
         heartbeatEveryMs: agent?.everyMs ?? null,
         zone: defaultZones[agentId] || (index % 2 === 0 ? 'work' : 'rest'),
@@ -294,6 +345,13 @@ export function createVisualStateService({ sanitize, rawCacheService }) {
         } : null,
       };
     });
+
+    return {
+      source: hasHeartbeatAgents ? 'heartbeat' : 'config-fallback',
+      configuredCount: items.length,
+      activeCount: items.filter((agent) => agent.active).length,
+      items,
+    };
   }
 
   function buildVisualStatus({ status, health, cron, taskStats, taskRuntime }) {
@@ -332,7 +390,7 @@ export function createVisualStateService({ sanitize, rawCacheService }) {
     const zone = failed > 0 ? 'alarm' : running > 0 ? 'work' : 'rest';
     const alertLevel = failed > 0 ? 'RED' : running > 0 ? 'GREEN' : 'AMBER';
     const task = taskRuntime?.currentTask?.title || (zone === 'work' ? '执行任务中' : zone === 'alarm' ? '告警处理' : '休息中');
-    const agents = buildAgentStates(status, zone, alertLevel);
+    const agentState = buildAgentStates(status, zone, alertLevel);
 
     return sanitize({
       zone,
@@ -345,14 +403,24 @@ export function createVisualStateService({ sanitize, rawCacheService }) {
       queue: queued,
       taskCount: taskStats?.taskCount ?? sessionsCount,
       openclaw: {
-        agents,
+        agents: agentState.items,
         tasks: taskStats,
         runtime: taskRuntime,
+        gateway: {
+          reachable: Boolean(health?.ok),
+          source: health ? 'health' : 'unavailable',
+        },
         summary: {
           sessions: sessionsCount,
           cronJobs,
           heartbeatEvery,
           channels,
+          agentSource: agentState.source,
+          configuredAgentCount: agentState.configuredCount,
+          activeAgentCount: agentState.activeCount,
+          rawStatusAvailable: Boolean(status),
+          rawHealthAvailable: Boolean(health),
+          rawCronAvailable: Boolean(cron),
           gatewayOk: Boolean(health?.ok),
         },
       },

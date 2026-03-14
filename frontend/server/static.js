@@ -19,9 +19,10 @@ function createStaticHelpers(config) {
     res.end(body);
   }
 
-  function serveStaticFile(reqPath, res, req = null) {
+  async function serveStaticFile(reqPath, res, req = null) {
     const webRoot = path.resolve(config.resolveStaticRoot());
-    const cleanPath = reqPath === "/" ? "/index.html" : reqPath;
+    const parsedPath = new URL(reqPath, "http://localhost").pathname;
+    const cleanPath = parsedPath === "/" ? "/index.html" : parsedPath;
     const relativePath = cleanPath.replace(/^\/+/, "");
     const absolutePath = path.resolve(webRoot, relativePath);
     const rootRelativePath = path.relative(webRoot, absolutePath);

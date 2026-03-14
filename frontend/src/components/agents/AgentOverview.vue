@@ -36,22 +36,12 @@ function formatStatus(agent) {
         @click="emit('select', agent.id)"
       >
         <div class="agent-mini__name">{{ agent.id }}</div>
-        <div class="agent-mini__meta">{{ zoneLabels[agent.zone] || agent.zone }} / {{ agent.status || "idle" }}</div>
+        <div class="agent-mini__meta">
+          {{ zoneLabels[agent.zone] || agent.zone }} /
+          {{ agent.status || "idle" }}
+        </div>
         <div class="agent-mini__task">{{ agent.session?.key || "待命" }}</div>
       </button>
-    </div>
-
-    <div id="agentPanels" class="agent-panels">
-      <section
-        v-for="agent in props.agents"
-        :key="`${agent.id}-panel`"
-        class="agent-panel"
-        :class="{ 'is-active': agent.id === props.focusedAgentId }"
-      >
-        <div class="agent-panel__title">{{ agent.id }} · {{ zoneLabels[agent.zone] || agent.zone }}</div>
-        <div class="agent-panel__status">{{ formatStatus(agent) }}</div>
-        <div class="agent-panel__task">{{ agent.session?.key || "当前无活跃会话" }}</div>
-      </section>
     </div>
   </div>
 </template>

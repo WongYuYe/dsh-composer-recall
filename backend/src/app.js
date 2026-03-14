@@ -24,7 +24,7 @@ export async function createApp() {
   const app = Fastify({ logger: false });
   const { sanitize, sendCommand } = createSanitizer(cfg);
   const rawCacheService = createRawCacheService({ cfg, runOpenClaw });
-  const visualStateService = createVisualStateService({ sanitize, rawCacheService });
+  const visualStateService = createVisualStateService({ cfg, sanitize, rawCacheService });
   const wsStatusService = createWsStatusService({
     cfg,
     sanitize,

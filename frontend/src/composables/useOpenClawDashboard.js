@@ -9,7 +9,6 @@ import {
   CONFIG,
   applyDashboardCssVars,
   syncBadgeLabels,
-  zoneLabels,
 } from "../lib/dashboard-config.js";
 import {
   applyMergePatch,
@@ -18,7 +17,6 @@ import {
   buildFocusedViewState,
   buildTaskActions,
   buildTaskDetail,
-  buildTimelineItems,
   cloneValue,
   formatClock,
   normalizeEventCursor,
@@ -225,22 +223,15 @@ export function useOpenClawDashboard() {
     taskActionMessage.value,
   ));
   const criticalMessage = computed(() => buildCriticalMessage(viewState.value));
-  const timelineItems = computed(() => buildTimelineItems(viewState.value));
   const syncBadgeText = computed(() => syncBadgeLabels[connectionState.value] || syncBadgeLabels.offline);
   const syncBadgeClass = computed(() => `sync-badge sync-badge--${connectionState.value}`);
   const clockText = computed(() => `${formatClock(now.value)} 北京时间`);
-  const modeValue = computed(() => viewState.value?.mode || "离线");
-  const alertValue = computed(() => viewState.value?.alertText || "离线");
-  const queueValue = computed(() => String(viewState.value?.runtime?.queueSummary?.queued ?? viewState.value?.queue ?? 0));
   const zoneName = computed(() => viewState.value?.zoneName || "连接中");
   const taskName = computed(() => viewState.value?.task || "正在同步状态");
   const taskSummary = computed(() => latestError.value || viewState.value?.description || "等待后台返回最新状态。");
   const mapBanner = computed(() => latestError.value || (viewState.value
     ? `${viewState.value.zoneName} · ${viewState.value.description}`
     : "等待状态同步后更新地图视图。"));
-  const recentSummary = computed(() => viewState.value
-    ? `${viewState.value.task} · ${viewState.value.description}`
-    : "等待状态同步后生成摘要。");
   const phaserState = computed(() => {
     if (!viewState.value) {
       return null;
@@ -440,7 +431,6 @@ export function useOpenClawDashboard() {
 
   onMounted(() => {
     applyDashboardCssVars();
-    document.body.dataset.viewMode = "map";
     now.value = Date.now();
     clockTimer = window.setInterval(() => {
       now.value = Date.now();
@@ -464,18 +454,12 @@ export function useOpenClawDashboard() {
 
   return {
     agents,
-    alertValue,
     clockText,
-    connectionState,
     criticalMessage,
     focusedAgentId,
-    latestError,
     mapBanner,
-    modeValue,
     performTaskAction,
     phaserState,
-    queueValue,
-    recentSummary,
     selectAgent,
     syncBadgeClass,
     syncBadgeText,
@@ -483,9 +467,7 @@ export function useOpenClawDashboard() {
     taskDetail,
     taskName,
     taskSummary,
-    timelineItems,
     viewState,
-    zoneLabels,
     zoneName,
   };
 }

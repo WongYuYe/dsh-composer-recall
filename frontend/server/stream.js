@@ -10,7 +10,6 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
     latestError: null,
     latestUpdatedAtMs: 0,
     latestFetchDurationMs: 0,
-    latestSignature: "",
     publishedPayload: null,
     latestEventId: 0,
     nextEventId: 1,
@@ -285,6 +284,9 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
         const rawStatus = statusResult.status === "fulfilled" ? statusResult.value : null;
         const externalTaskStats = taskStatsResult.status === "fulfilled" ? taskStatsResult.value : null;
         const externalTaskRuntime = taskRuntimeResult.status === "fulfilled" ? taskRuntimeResult.value : null;
+        const sourceState = {
+          statusFetchOk: statusResult.status === "fulfilled",
+        };
         const primaryError = statusResult.status === "rejected"
           ? statusResult.reason
           : taskRuntimeResult.status === "rejected"
@@ -300,9 +302,8 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
               : buildOfflineStatusSeed(primaryError)),
           externalTaskStats,
           externalTaskRuntime,
+          sourceState,
         );
-        const signature = JSON.stringify(payload);
-
         streamState.latestPayload = payload;
         streamState.latestError = rawStatus ? null : (primaryError?.message || String(primaryError || ""));
         streamState.latestUpdatedAtMs = Date.now();
@@ -323,7 +324,6 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
         }
 
         streamState.publishedPayload = deepClone(payload);
-        streamState.latestSignature = signature;
 
         return payload;
       } catch (error) {
@@ -411,44 +411,8 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
     };
   }
 
-  function diagnosticsResponseBody() {
-    return {
-      ok: true,
-      data: {
-        ws: {
-          path: config.wsPath,
-          clients: wsServer
-            ? [...wsServer.clients].map((ws) => ({
-                connectionId: ws.connectionId,
-                connectedAt: ws.connectedAt ? new Date(ws.connectedAt).toISOString() : null,
-                isAlive: Boolean(ws.isAlive),
-                missedPongs: Number(ws.missedPongs || 0),
-              }))
-            : [],
-          activeConnections: wsServer?.clients?.size || 0,
-          replayWindow: replayWindowMeta(),
-          latestEventId: streamState.latestEventId,
-        },
-        stream: {
-          latestUpdatedAt: streamState.latestPayload?.updatedAt || null,
-          latestFetchDurationMs: streamState.latestFetchDurationMs,
-          latestError: streamState.latestError,
-          latestSignature: streamState.latestSignature,
-          hasPayload: Boolean(streamState.latestPayload),
-          fetchInFlight: Boolean(streamState.fetchInFlight),
-        },
-        upstream: {
-          statusCandidates: upstreamClient.getStatusEndpointCandidates(),
-          taskStatsCandidates: upstreamClient.getTaskStatsCandidates(),
-          taskRuntimeCandidates: upstreamClient.getTaskRuntimeCandidates(),
-        },
-      },
-    };
-  }
-
   return {
     attachWebSocketServer,
-    diagnosticsResponseBody,
     replayEventsFrom,
     replayWindowMeta,
     refreshStatus,

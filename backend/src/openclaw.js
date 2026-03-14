@@ -1,11 +1,48 @@
 import { spawn } from 'node:child_process';
 import { extname } from 'node:path';
 
+const DEFAULT_COMMAND_TIMEOUT_MS = 8000;
+
 function buildArgs(args, profile) {
   const out = [];
   if (profile) out.push('--profile', profile);
   out.push(...args);
   return out;
+}
+
+function readCommandTimeoutMs() {
+  const parsed = Number(process.env.OPENCLAW_COMMAND_TIMEOUT_MS || DEFAULT_COMMAND_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_COMMAND_TIMEOUT_MS;
+}
+
+function killChildProcessTree(child) {
+  if (!child || child.exitCode !== null || child.signalCode) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    try {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+      killer.unref();
+    } catch {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // ignore
+      }
+    }
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function parsePossiblyPrefixedJson(stdout) {
@@ -55,21 +92,30 @@ export async function runOpenClaw({ bin = 'openclaw', profile = '', args = [] })
   const command = shouldInvokeWithNode ? process.execPath : bin;
   const spawnArgs = shouldInvokeWithNode ? [bin, ...finalArgs] : finalArgs;
   const commandDisplay = [command, ...spawnArgs].join(' ');
+  const timeoutMs = readCommandTimeoutMs();
 
   return await new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timeoutHandle = null;
 
     const finish = (payload) => {
       if (settled) return;
       settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
       resolve(payload);
     };
 
     let p;
     try {
-      p = spawn(command, spawnArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      p = spawn(command, spawnArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
+      });
     } catch (error) {
       finish({
         ok: false,
@@ -94,6 +140,19 @@ export async function runOpenClaw({ bin = 'openclaw', profile = '', args = [] })
         command: commandDisplay,
       });
     });
+
+    timeoutHandle = setTimeout(() => {
+      stderr = `${stderr ? `${stderr}\n` : ''}Command timed out after ${timeoutMs}ms`;
+      killChildProcessTree(p);
+      finish({
+        ok: false,
+        code: null,
+        stdout,
+        stderr,
+        data: null,
+        command: commandDisplay,
+      });
+    }, timeoutMs);
 
     p.on('close', (code) => {
       const parsed = parsePossiblyPrefixedJson(stdout);

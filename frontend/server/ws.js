@@ -17,8 +17,6 @@ function createWsGateway(server, config, streamService) {
     }
 
     if (url.pathname !== config.wsPath) {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
       return;
     }
 

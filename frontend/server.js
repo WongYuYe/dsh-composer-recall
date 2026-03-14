@@ -26,7 +26,7 @@ const {
   taskStatsResponseBody,
 } = dashboardHelpers;
 
-async function createDevStaticMiddleware(config) {
+async function createDevStaticMiddleware(config, httpServer = null) {
   if (config.isProduction) {
     return null;
   }
@@ -39,7 +39,7 @@ async function createDevStaticMiddleware(config) {
     server: {
       middlewareMode: true,
       hmr: {
-        port: config.port,
+        server: httpServer || undefined,
         clientPort: config.port,
       },
     },
@@ -61,7 +61,6 @@ async function createDevStaticMiddleware(config) {
 }
 
 async function main() {
-  const devStaticMiddleware = await createDevStaticMiddleware(config);
   const server = http.createServer((req, res) => {
     setCorsHeaders(res);
 
@@ -293,6 +292,7 @@ async function main() {
 
     sendJson(res, 405, { error: "Method not allowed" });
   });
+  const devStaticMiddleware = await createDevStaticMiddleware(config, server);
 
   createWsGateway(server, config, streamService);
   server.listen(config.port, config.host);

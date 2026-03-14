@@ -269,7 +269,6 @@ export function useOpenClawDashboard() {
     const activeAgents = Number(summary.activeAgentCount);
     const totalTasks = toCount(taskStats.total, toCount(state?.taskCount, 0));
     const runningTasks = toCount(queueSummary.running, toCount(taskStats.doing, 0));
-    const failedTasks = toCount(queueSummary.failed, toCount(taskStats.blocked, 0));
     const queuedTasks = toCount(queueSummary.queued, toCount(taskStats.todo, 0));
     const activeAgentCount = Number.isFinite(activeAgents)
       ? activeAgents
@@ -284,13 +283,9 @@ export function useOpenClawDashboard() {
       alertText: state?.alertText || "未知",
       alertLevel: state?.alertLevel || "OFFLINE",
       taskCount: totalTasks,
-      activeAgents: activeAgentCount,
-      summary: [
-        `队列 ${queuedTasks} 项`,
-        `运行中 ${runningTasks} 项`,
-        failedTasks > 0 ? `失败 ${failedTasks} 项` : "",
-        `活跃 Agent ${activeAgentCount}/${configuredAgentCount}`,
-      ].filter(Boolean).join(" · "),
+      queuedTasks,
+      runningTasks,
+      activeAgentsText: `${activeAgentCount}/${configuredAgentCount}`,
     };
   });
   const transportBanner = computed(() => {

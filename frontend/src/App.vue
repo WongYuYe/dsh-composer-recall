@@ -89,14 +89,18 @@ const zonePills = [
                 <dd>{{ dashboard.systemOverview.value.taskCount }}</dd>
               </dl>
               <dl class="metric-box">
+                <dt>队列</dt>
+                <dd>{{ dashboard.systemOverview.value.queuedTasks }}</dd>
+              </dl>
+              <dl class="metric-box">
+                <dt>运行中</dt>
+                <dd>{{ dashboard.systemOverview.value.runningTasks }}</dd>
+              </dl>
+              <dl class="metric-box">
                 <dt>活跃 Agent</dt>
-                <dd>{{ dashboard.systemOverview.value.activeAgents }}</dd>
+                <dd>{{ dashboard.systemOverview.value.activeAgentsText }}</dd>
               </dl>
             </div>
-
-            <p class="status-block__summary">
-              {{ dashboard.systemOverview.value.summary }}
-            </p>
           </div>
 
           <div

@@ -278,13 +278,6 @@ body::after {
   gap: 10px;
 }
 
-.status-block__summary {
-  margin: 0;
-  color: rgba(244, 241, 207, 0.8);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
 .status-divider {
   border-top: 2px solid rgba(131, 185, 176, 0.18);
 }

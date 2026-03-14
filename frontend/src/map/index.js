@@ -450,6 +450,7 @@ import {
         .setVisible(false);
       this.agentMarkers = [];
       this.agentMarkerMap = new Map();
+      this.agentPositionMemory = new Map();
       this.focusedMarkerId = "";
       this.lastRenderedAgentIds = [];
       this.lastRenderedAgents = [];
@@ -490,6 +491,15 @@ import {
     }
 
     destroyAgentMarker(node) {
+      if (node?.__agentId) {
+        this.rememberAgentWorldPosition(
+          node.__agentId,
+          node.__agentZone || "",
+          node.x,
+          node.y,
+          Boolean(node.__isTownView),
+        );
+      }
       this.stopAgentMarkerMotion(node);
       if (node && typeof node.destroy === "function") {
         node.destroy();
@@ -626,6 +636,82 @@ import {
       };
     }
 
+    rememberAgentTilePosition(agentId, zone, position, isTownView) {
+      if (!agentId || !position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+        return;
+      }
+
+      const nextRecord = this.agentPositionMemory.get(agentId) || {};
+      const entry = {
+        zone: zone || "",
+        position: {
+          x: position.x,
+          y: position.y,
+        },
+      };
+
+      if (isTownView) {
+        nextRecord.town = entry;
+      } else {
+        nextRecord.room = entry;
+      }
+
+      this.agentPositionMemory.set(agentId, nextRecord);
+    }
+
+    rememberAgentWorldPosition(agentId, zone, worldX, worldY, isTownView) {
+      const tilePosition = this.getWorldTilePosition(worldX, worldY, isTownView);
+      if (!tilePosition) {
+        return;
+      }
+
+      this.rememberAgentTilePosition(agentId, zone, tilePosition, isTownView);
+    }
+
+    getRememberedAgentPosition(agentId, zone, isTownView) {
+      if (!agentId) {
+        return null;
+      }
+
+      const record = this.agentPositionMemory.get(agentId);
+      const entry = isTownView ? record?.town : record?.room;
+      if (!entry?.position) {
+        return null;
+      }
+
+      if (entry.zone && zone && entry.zone !== zone) {
+        return null;
+      }
+
+      return {
+        x: entry.position.x,
+        y: entry.position.y,
+      };
+    }
+
+    resolveFocusedAgentPosition(state, isTownView) {
+      if (!state?.zone) {
+        return null;
+      }
+
+      const focusedId = state?.focusedAgentId || "main";
+      const rememberedPosition = this.getRememberedAgentPosition(focusedId, state.zone, isTownView);
+      if (rememberedPosition) {
+        return rememberedPosition;
+      }
+
+      if (isTownView) {
+        return state?.focusedAgent?.mapPosition
+          || state?.focusedAgent?.position
+          || this.resolveOutdoorPosition(state)
+          || null;
+      }
+
+      return state?.focusedAgent?.position
+        || this.resolveRoomPosition(state)
+        || null;
+    }
+
     getAgentMarkerAlpha(agent, isFocused = false) {
       if (agent?.enabled === false) {
         return isFocused ? 0.42 : 0.2;
@@ -699,7 +785,30 @@ import {
           this.setAgentMarkerIdleFrame(marker.__agentSprite, direction);
         }
       }
+      this.rememberAgentWorldPosition(
+        marker.__agentId,
+        marker.__agentZone || this.currentZone || "",
+        marker.x,
+        marker.y,
+        Boolean(marker.__isTownView),
+      );
       this.syncRobotProxyVisibility();
+    }
+
+    syncRobotProxyToFocusedMarker(alertLevel, zone, isTownView) {
+      const marker = this.getFocusedMarker();
+      if (!marker) {
+        return false;
+      }
+
+      this.applyRobotVisual(alertLevel, zone, isTownView);
+      this.player.setPosition(marker.x, marker.y);
+      this.shadow.setPosition(marker.x, marker.y + (isTownView ? 4 : 8));
+      this.nameplate.setPosition(marker.x, marker.y - (isTownView ? 16 : 30));
+      this.player.stop();
+      this.player.setFrame("misa-front");
+      this.syncRobotProxyVisibility();
+      return true;
     }
 
     getAgentRoamProfile(agent, isTownView, isRemoteAgent = false) {
@@ -881,7 +990,23 @@ import {
           y,
           duration: durationMs,
           ease: "Sine.InOut",
+          onUpdate: () => {
+            this.rememberAgentWorldPosition(
+              container.__agentId,
+              container.__agentZone || "",
+              container.x,
+              container.y,
+              isTownView,
+            );
+          },
           onComplete: () => {
+            this.rememberAgentWorldPosition(
+              container.__agentId,
+              container.__agentZone || "",
+              container.x,
+              container.y,
+              isTownView,
+            );
             this.setAgentMarkerIdleFrame(sprite, direction);
             if (!container.scene) {
               return;
@@ -932,16 +1057,27 @@ import {
           const slotIndex = zoneSlots.get(slotKey) || 0;
           zoneSlots.set(slotKey, slotIndex + 1);
 
+          const rememberedPosition = this.getRememberedAgentPosition(
+            agent.id,
+            agent.zone || activeZone,
+            isTownView,
+          );
+          const fallbackPosition = isTownView
+            ? this.getTownAgentMarkerPosition(agent, slotIndex)
+            : this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex);
+
           const tilePosition = isFocused
             ? (
-              isTownView
-                ? (state?.mapPosition || this.getTownAgentMarkerPosition(agent, slotIndex))
-                : (state?.position || this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex))
+              rememberedPosition
+              || (
+                isTownView
+                  ? (state?.focusedAgent?.mapPosition || state?.focusedAgent?.position)
+                  : state?.focusedAgent?.position
+              )
+              || fallbackPosition
             )
             : (
-              isTownView
-                ? this.getTownAgentMarkerPosition(agent, slotIndex)
-                : this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex)
+              rememberedPosition || fallbackPosition
             );
           const isRemoteAgent = !isTownView && agent.zone !== activeZone;
           const roamProfile = this.getAgentRoamProfile(agent, isTownView, isRemoteAgent);
@@ -989,6 +1125,7 @@ import {
           if (container.__renderKey !== renderKey) {
             this.stopAgentMarkerMotion(container);
             container.setPosition(x, y);
+            this.rememberAgentTilePosition(agent.id, agent.zone || activeZone, spawnPoint, isTownView);
             this.setAgentMarkerIdleFrame(container.__agentSprite);
             this.startAgentMarkerRoam(container, container.__agentSprite, spawnPoint, roamBounds, roamProfile, isTownView);
             container.__renderKey = renderKey;
@@ -1024,7 +1161,8 @@ import {
         this.buildTownView(state.zone);
         this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
         this.renderAgentMarkers(state);
-        const outdoorPosition = this.resolveOutdoorPosition(state)
+        const outdoorPosition = this.resolveFocusedAgentPosition(state, true)
+          || this.resolveOutdoorPosition(state)
           || this.getOutdoorRoute(state)[0]
           || this.getTownDoorWalkTarget(state.zone);
         if (outdoorPosition) {
@@ -1038,7 +1176,11 @@ import {
       this.buildRoomView(state.zone);
       this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
       this.renderAgentMarkers(state);
-      const roomPosition = this.resolveRoomPosition(state) || this.getRoomEntryTile(state.zone);
+      if (this.syncRobotProxyToFocusedMarker(state.alertLevel, state.zone, false)) {
+        return;
+      }
+      const roomPosition = this.resolveFocusedAgentPosition(state, false)
+        || this.getRoomEntryTile(state.zone);
       if (roomPosition) {
         this.teleportRobot(roomPosition, state.alertLevel, state.zone, false);
       } else {
@@ -1658,7 +1800,7 @@ import {
         return;
       }
 
-      const roomPosition = this.resolveRoomPosition(pendingState || latestState);
+      const roomPosition = this.resolveFocusedAgentPosition(pendingState || latestState, false);
       if (roomPosition) {
         await this.moveRobotTo(roomPosition, latestState.alertLevel, zone, 460, false);
       } else {
@@ -2084,7 +2226,7 @@ import {
       this.clearPreviewTimer();
       this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
 
-      const roomPosition = this.resolveRoomPosition(state);
+      const roomPosition = this.resolveFocusedAgentPosition(state, false);
       if (!roomPosition) {
         this.clearRobot();
         return;
@@ -2098,6 +2240,9 @@ import {
       const focusedAgent = agents.find((item) => item.id === (state?.focusedAgentId || 'main')) || agents.find((item) => item.id === 'main') || agents[0] || null;
       this.nameplate.setText(focusedAgent?.id || state?.focusedAgentId || 'main');
       this.renderAgentMarkers(state);
+      if (this.currentView.endsWith("-room") && this.syncRobotProxyToFocusedMarker(alertLevel, zone, false)) {
+        return;
+      }
       void this.moveRobotTo(position, alertLevel, zone, 280, this.currentView === "town");
     }
 

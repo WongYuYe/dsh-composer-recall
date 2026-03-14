@@ -387,6 +387,7 @@ import {
       this.previewKey = "";
       this.transitioningRoomZone = "";
       this.sequenceId = 0;
+      this.lastAppliedFocusedAgentId = "";
     }
 
     preload() {
@@ -863,11 +864,10 @@ import {
       const nextIds = new Set();
 
       this.nameplate.setText(focusedAgent?.id || focusedId);
-      this.focusedMarkerId = "";
+      this.focusedMarkerId = focusedAgent?.id || "";
 
-      agents
-        .filter((agent) => !focusedAgent || agent.id !== focusedAgent.id)
-        .forEach((agent) => {
+      agents.forEach((agent) => {
+          const isFocused = Boolean(focusedAgent) && agent.id === focusedAgent.id;
           const slotKey = isTownView
             ? (agent.zone || "rest")
             : agent.zone === activeZone
@@ -876,9 +876,17 @@ import {
           const slotIndex = zoneSlots.get(slotKey) || 0;
           zoneSlots.set(slotKey, slotIndex + 1);
 
-          const tilePosition = isTownView
-            ? this.getTownAgentMarkerPosition(agent, slotIndex)
-            : this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex);
+          const tilePosition = isFocused
+            ? (
+              isTownView
+                ? (state?.mapPosition || this.getTownAgentMarkerPosition(agent, slotIndex))
+                : (state?.position || this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex))
+            )
+            : (
+              isTownView
+                ? this.getTownAgentMarkerPosition(agent, slotIndex)
+                : this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex)
+            );
           const isRemoteAgent = !isTownView && agent.zone !== activeZone;
           const roamProfile = this.getAgentRoamProfile(agent, isTownView, isRemoteAgent);
           const roamPoints = this.buildAgentRoamPoints(tilePosition, roamProfile.offsets);
@@ -887,8 +895,10 @@ import {
           const accent = this.getAgentAccent(agent.zone);
           const markerDepth = isTownView ? 87 : 94;
           const spriteScale = isTownView ? 0.8 : 1.16;
-          const markerAlpha = this.getAgentMarkerAlpha(agent, false);
-          const labelText = !isTownView && agent.zone !== activeZone
+          const markerAlpha = this.getAgentMarkerAlpha(agent, isFocused);
+          const labelText = isFocused
+            ? `${agent.id} · 当前`
+            : !isTownView && agent.zone !== activeZone
             ? `${agent.id} @${agent.zone || "rest"}`
             : agent.id;
           const renderKey = [
@@ -896,7 +906,7 @@ import {
             activeZone,
             agent.id,
             agent.zone || "",
-            "marker",
+            isFocused ? "focused" : "marker",
             Number(tilePosition?.x ?? 0).toFixed(2),
             Number(tilePosition?.y ?? 0).toFixed(2),
             labelText,
@@ -910,7 +920,7 @@ import {
 
           this.updateAgentMarkerAppearance(container, agent, {
             isTownView,
-            isFocused: false,
+            isFocused,
             labelText,
             accent,
             markerDepth,
@@ -918,7 +928,14 @@ import {
             markerAlpha,
           });
 
-          if (container.__renderKey !== renderKey) {
+          if (isFocused) {
+            this.stopAgentMarkerMotion(container);
+            if (container.__renderKey !== renderKey) {
+              container.setPosition(x, y);
+              container.__renderKey = renderKey;
+            }
+            this.syncFocusedMarkerToRobot();
+          } else if (container.__renderKey !== renderKey) {
             this.stopAgentMarkerMotion(container);
             container.setPosition(x, y);
             this.setAgentMarkerIdleFrame(container.__agentSprite);
@@ -940,6 +957,42 @@ import {
 
       this.refreshAgentMarkerCollections();
       this.syncRobotProxyVisibility();
+    }
+
+    applyFocusedStateImmediately(state) {
+      if (!state?.zone) {
+        this.clearRobot();
+        return;
+      }
+
+      this.clearPreviewTimer();
+      this.previewZone = state.zone;
+      this.previewKey = this.getPreviewKey(state);
+
+      if (this.isOutdoorState(state)) {
+        this.buildTownView(state.zone);
+        this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
+        this.renderAgentMarkers(state);
+        const outdoorPosition = this.resolveOutdoorPosition(state)
+          || this.getOutdoorRoute(state)[0]
+          || this.getTownDoorWalkTarget(state.zone);
+        if (outdoorPosition) {
+          this.teleportRobot(outdoorPosition, state.alertLevel, state.zone, true);
+        } else {
+          this.clearRobot();
+        }
+        return;
+      }
+
+      this.buildRoomView(state.zone);
+      this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(state);
+      const roomPosition = this.resolveRoomPosition(state) || this.getRoomEntryTile(state.zone);
+      if (roomPosition) {
+        this.teleportRobot(roomPosition, state.alertLevel, state.zone, false);
+      } else {
+        this.clearRobot();
+      }
     }
 
     clearPreviewTimer() {
@@ -1895,6 +1948,10 @@ import {
 
     applyState(state) {
       pendingState = state;
+      const nextFocusedAgentId = state?.focusedAgentId || "main";
+      const focusChanged = Boolean(this.lastAppliedFocusedAgentId)
+        && this.lastAppliedFocusedAgentId !== nextFocusedAgentId;
+      this.lastAppliedFocusedAgentId = nextFocusedAgentId;
 
       if (!this.player) {
         return;
@@ -1907,6 +1964,11 @@ import {
         }
         this.updateViewState("", state?.alertLevel || "OFFLINE");
         this.clearRobot();
+        return;
+      }
+
+      if (focusChanged) {
+        this.applyFocusedStateImmediately(state);
         return;
       }
 

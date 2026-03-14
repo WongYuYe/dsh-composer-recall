@@ -75,12 +75,6 @@ watch(
         <div id="mapBanner" class="map-banner" data-field="map-banner">
           {{ bannerText }}
         </div>
-
-        <div class="map-legend">
-          <span><i class="legend-chip legend-chip--rest"></i>休息区</span>
-          <span><i class="legend-chip legend-chip--work"></i>工作区</span>
-          <span><i class="legend-chip legend-chip--robot"></i>Agent 位置</span>
-        </div>
       </div>
     </div>
   </section>

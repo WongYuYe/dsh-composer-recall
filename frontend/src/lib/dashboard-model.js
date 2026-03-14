@@ -798,22 +798,22 @@ export function buildTaskDetail(viewState) {
     }
 
     const disabled = focusedAgent.enabled === false;
+    const zone = normalizeZone(firstDefined(viewState.zone, focusedAgent.zone)) || "rest";
+    const zoneLabel = viewState.zoneLabel || zoneLabels[zone] || zone;
     const updatedAt = focusedAgent.updatedAt || viewState.updatedAt || null;
+    const metaBits = [`区域 ${zoneLabel}`];
+    if (updatedAt) {
+      metaBits.push(`最近更新 ${formatShortTime(updatedAt)}`);
+    }
 
     return {
       visible: true,
       status: "idle",
-      meta: updatedAt
-        ? `最近更新 ${formatShortTime(updatedAt)}`
-        : disabled
-          ? "当前未启用"
-          : "当前无任务",
-      title: disabled
-        ? `${focusedAgent.id} 已停用`
-        : `${focusedAgent.id} 当前无任务`,
+      meta: metaBits.join(" · "),
+      title: buildAgentFallbackTask(focusedAgent, zone),
       summary: disabled
-        ? "该 Agent 当前未启用，暂未接收任务。"
-        : "该 Agent 当前没有匹配中的任务，正在等待新的安排。",
+        ? buildAgentFallbackDescription(focusedAgent, zone)
+        : `${buildAgentFallbackDescription(focusedAgent, zone)} 暂无可展示的任务明细。`,
     };
   }
 

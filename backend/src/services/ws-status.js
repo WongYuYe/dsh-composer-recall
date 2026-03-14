@@ -51,15 +51,15 @@ export function createWsStatusService({ cfg, sanitize, stableJson, createMergePa
   }
 
   async function broadcastVisualStatus(reason = 'interval') {
+    const clients = [...wsClients.values()].filter((client) => client.socket.readyState === 1);
+    if (clients.length === 0) {
+      return null;
+    }
+
     const payload = await collectVisualPayload();
     const normalized = stableJson(payload);
-    const clients = [...wsClients.values()];
 
     for (const client of clients) {
-      if (client.socket.readyState !== 1) {
-        continue;
-      }
-
       let mode = 'snapshot';
       let patch = null;
       if (client.lastPayload) {

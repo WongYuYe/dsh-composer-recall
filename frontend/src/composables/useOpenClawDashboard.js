@@ -104,6 +104,11 @@ export function useOpenClawDashboard() {
   let reconnectTimer = 0;
   let websocket = null;
 
+  function syncEmbeddedTaskState(payload) {
+    rawTaskStats.value = payload?.openclaw?.tasks || null;
+    rawTaskRuntime.value = payload?.openclaw?.runtime || null;
+  }
+
   const dashboardState = computed(() => buildDashboardState(
     rawStatus.value,
     rawTaskStats.value,
@@ -166,6 +171,7 @@ export function useOpenClawDashboard() {
       { method: "GET" },
     );
     rawStatus.value = payload;
+    syncEmbeddedTaskState(payload);
     if (payload?._meta?.lastEventId !== undefined) {
       lastEventId.value = normalizeEventCursor(payload._meta.lastEventId);
     }
@@ -174,25 +180,9 @@ export function useOpenClawDashboard() {
     return payload;
   }
 
-  async function refreshTaskStats() {
-    const payload = await requestJson(buildAbsoluteUrl(CONFIG.taskStatsEndpoint), { method: "GET" });
-    rawTaskStats.value = payload;
-    return payload;
-  }
-
-  async function refreshTaskRuntime() {
-    const payload = await requestJson(buildAbsoluteUrl(CONFIG.taskRuntimeEndpoint), { method: "GET" });
-    rawTaskRuntime.value = payload;
-    return payload;
-  }
-
   async function refreshAll(forceRefresh = false) {
     try {
-      await Promise.all([
-        refreshStatus(forceRefresh),
-        refreshTaskStats().catch(() => null),
-        refreshTaskRuntime().catch(() => null),
-      ]);
+      await refreshStatus(forceRefresh);
     } catch (error) {
       latestError.value = error?.message || "状态同步失败";
       connectionState.value = rawStatus.value ? "syncing" : "offline";
@@ -240,9 +230,9 @@ export function useOpenClawDashboard() {
       rawStatus.value = applyMergePatch(rawStatus.value || {}, message.patch || {});
     }
 
+    syncEmbeddedTaskState(rawStatus.value);
     latestError.value = "";
     connectionState.value = "online";
-    void refreshTaskRuntime().catch(() => null);
   }
 
   function connectWs() {
@@ -314,6 +304,9 @@ export function useOpenClawDashboard() {
       now.value = Date.now();
     }, 1000);
     pollTimer = window.setInterval(() => {
+      if (connectionState.value === "online") {
+        return;
+      }
       void refreshAll(false);
     }, CONFIG.pollIntervalMs);
     void refreshAll(true);

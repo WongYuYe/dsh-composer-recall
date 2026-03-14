@@ -65,7 +65,7 @@ export const CONFIG = {
   wsEndpoint: wsOverride || externalConfig.wsEndpoint || "/ws/openclaw/status",
   taskStatsEndpoint: taskStatsOverride || externalConfig.taskStatsEndpoint || "/api/tasks/stats",
   taskRuntimeEndpoint: taskRuntimeOverride || externalConfig.taskRuntimeEndpoint || "/api/tasks/runtime",
-  pollIntervalMs: Math.max(Number(urlParams.get("poll") || externalConfig.pollIntervalMs || 3000), 1500),
+  pollIntervalMs: Math.max(Number(urlParams.get("poll") || externalConfig.pollIntervalMs || 10000), 3000),
   requestTimeoutMs: Math.max(Number(urlParams.get("timeout") || externalConfig.requestTimeoutMs || 12000), 2000),
   wsReconnectDelayMs: Math.max(Number(urlParams.get("wsReconnect") || externalConfig.wsReconnectDelayMs || 3500), 1000),
   headers: { ...(externalConfig.headers || {}) },

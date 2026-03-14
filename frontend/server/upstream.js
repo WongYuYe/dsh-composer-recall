@@ -1,9 +1,3 @@
-const { execFile } = require("child_process");
-
-const {
-  extractJsonPayload,
-} = require("./utils");
-
 function createUpstreamClient(config, dashboardHelpers) {
   function getTaskEndpointCandidates(explicitUrl, pathname) {
     const fromEnv = String(explicitUrl || "")
@@ -272,68 +266,19 @@ function createUpstreamClient(config, dashboardHelpers) {
     return null;
   }
 
-  function fetchOpenclawStatusFromCli(callback) {
-    execFile(
-      "/bin/zsh",
-      ["-lc", "openclaw --no-color status --json"],
-      {
-        timeout: config.statusTimeoutMs,
-        maxBuffer: 2 * 1024 * 1024,
-        env: process.env,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          callback(error, null, stderr || stdout);
-          return;
-        }
-
-        try {
-          callback(null, extractJsonPayload(stdout), stderr);
-        } catch (parseError) {
-          parseError.message = `Failed to parse JSON from 'openclaw status --json': ${parseError.message}`;
-          callback(parseError, null, stderr || stdout);
-        }
-      },
-    );
-  }
-
-  function fetchOpenclawStatusFromCliAsync() {
-    return new Promise((resolve, reject) => {
-      fetchOpenclawStatusFromCli((error, status, stderr) => {
-        if (error) {
-          const wrapped = new Error(error.message);
-          wrapped.stderr = (stderr || "").trim();
-          reject(wrapped);
-          return;
-        }
-
-        resolve(status);
-      });
-    });
-  }
-
   function unwrapUpstreamStatusPayload(payload) {
     const root = payload?.data || payload?.status || payload;
     return root && typeof root === "object" && !Array.isArray(root) ? root : null;
   }
 
   async function fetchOpenclawStatusAsync() {
-    try {
-      const payload = await fetchJsonFromCandidates(getStatusEndpointCandidates(), config.statusTimeoutMs);
-      const unwrapped = unwrapUpstreamStatusPayload(payload);
-      if (unwrapped) {
-        return unwrapped;
-      }
-      throw new Error("Upstream status payload is not a JSON object.");
-    } catch (upstreamError) {
-      try {
-        return await fetchOpenclawStatusFromCliAsync();
-      } catch (cliError) {
-        const upstreamMessage = upstreamError?.message ? `; upstream status fetch failed: ${upstreamError.message}` : "";
-        cliError.message = `${cliError.message}${upstreamMessage}`;
-        throw cliError;
-      }
+    const payload = await fetchJsonFromCandidates(getStatusEndpointCandidates(), config.statusTimeoutMs);
+    const unwrapped = unwrapUpstreamStatusPayload(payload);
+    if (unwrapped) {
+      return unwrapped;
     }
+
+    throw new Error("Upstream status payload is not a JSON object.");
   }
 
   return {

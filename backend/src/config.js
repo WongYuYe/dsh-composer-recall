@@ -12,9 +12,9 @@ export function createConfig() {
     includeCommandInResponse: String(process.env.INCLUDE_COMMAND_IN_RESPONSE || 'false').toLowerCase() === 'true',
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
     rateLimitWindow: process.env.RATE_LIMIT_WINDOW || '1 minute',
-    wsStatusIntervalMs: Number(process.env.WS_STATUS_INTERVAL_MS || 5000),
-    rawStatusTtlMs: Number(process.env.RAW_STATUS_TTL_MS || 2500),
-    rawHealthTtlMs: Number(process.env.RAW_HEALTH_TTL_MS || 3500),
-    rawCronTtlMs: Number(process.env.RAW_CRON_TTL_MS || 10000),
+    wsStatusIntervalMs: Number(process.env.WS_STATUS_INTERVAL_MS || 10000),
+    rawStatusTtlMs: Number(process.env.RAW_STATUS_TTL_MS || 10000),
+    rawHealthTtlMs: Number(process.env.RAW_HEALTH_TTL_MS || 15000),
+    rawCronTtlMs: Number(process.env.RAW_CRON_TTL_MS || 30000),
   };
 }

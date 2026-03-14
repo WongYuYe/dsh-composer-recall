@@ -860,13 +860,16 @@ import {
       const focusedAgent = agents.find((agent) => agent.id === focusedId) || agents[0] || null;
       const isTownView = this.currentView === "town";
       const activeZone = state?.zone || this.currentZone || focusedAgent?.zone || "rest";
+      const visibleAgents = isTownView
+        ? agents
+        : agents.filter((agent) => (agent?.zone || "rest") === activeZone);
       const zoneSlots = new Map();
       const nextIds = new Set();
 
       this.nameplate.setText(focusedAgent?.id || focusedId);
       this.focusedMarkerId = focusedAgent?.id || "";
 
-      agents.forEach((agent) => {
+      visibleAgents.forEach((agent) => {
           const isFocused = Boolean(focusedAgent) && agent.id === focusedAgent.id;
           const slotKey = isTownView
             ? (agent.zone || "rest")

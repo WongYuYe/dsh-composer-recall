@@ -4,16 +4,20 @@
   "private": true,
   "description": "OpenClaw status pixel dashboard",
   "scripts": {
-    "start": "node build.mjs && node server.js",
-    "dev": "node --watch server.js",
-    "build": "node build.mjs",
-    "start:prod": "node build.mjs && node server.js"
+    "start": "vite build && node server.js",
+    "dev": "vite",
+    "dev:proxy": "node --watch server.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start:prod": "vite build && node server.js"
   },
   "dependencies": {
     "phaser": "^3.90.0",
+    "vue": "^3.5.13",
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.1"
+    "@vitejs/plugin-vue": "^5.2.3",
+    "vite": "^6.3.5"
   }
 }

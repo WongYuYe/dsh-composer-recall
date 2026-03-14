@@ -43,6 +43,10 @@ html {
   min-height: 100%;
 }
 
+#app {
+  min-height: 100vh;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -521,6 +525,14 @@ body::after {
   padding: 12px;
   background: rgba(6, 17, 20, 0.76);
   border: 3px solid rgba(131, 185, 176, 0.22);
+}
+
+.feed-item[data-severity="warn"] {
+  border-color: rgba(240, 201, 111, 0.28);
+}
+
+.feed-item[data-severity="error"] {
+  border-color: rgba(214, 92, 79, 0.3);
 }
 
 .metric-box--highlight {

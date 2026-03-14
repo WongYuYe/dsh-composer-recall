@@ -7,10 +7,6 @@ const defaultStaticRoot = path.join(frontendRoot, "dist");
 function resolveStaticRoot(configuredRoot = process.env.OPENCLAW_STATIC_ROOT || "") {
   const normalized = String(configuredRoot || "").trim();
   if (normalized) {
-    if (normalized === "source") {
-      return frontendRoot;
-    }
-
     if (normalized === "dist") {
       return defaultStaticRoot;
     }
@@ -20,7 +16,7 @@ function resolveStaticRoot(configuredRoot = process.env.OPENCLAW_STATIC_ROOT || 
       : path.resolve(frontendRoot, normalized);
   }
 
-  return fs.existsSync(defaultStaticRoot) ? defaultStaticRoot : frontendRoot;
+  return defaultStaticRoot;
 }
 
 function readApiKeyFromDotenv(filePath) {

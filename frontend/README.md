@@ -1,10 +1,9 @@
 # Frontend
 
-前端负责三件事：
+前端目录现在包含两层：
 
-- 提供本地页面
-- 代理和聚合上游状态接口
-- 向浏览器输出 HTTP + WebSocket 数据
+- Vue 页面与 Phaser 地图
+- 提供静态资源、`/api` 和 `/ws` 的本地聚合服务
 
 默认上游是：
 
@@ -21,11 +20,8 @@ npm start
 
 - `http://127.0.0.1:3008/`
 
-说明：
-
-- `npm start` 会先执行 `node build.mjs`
-- 启动后默认优先服务 `dist/`
-- `index.html` 不缓存，`dist/assets/` 使用 hash 文件名
+`npm start` 会先执行 `vite build`，再启动 [server.js](/D:/Code/pokemon-claw/frontend/server.js)。  
+服务固定提供 `dist/`，`index.html` 不缓存，构建产物使用 hash 文件名。
 
 ## 常用脚本
 
@@ -33,23 +29,22 @@ npm start
 npm start
 npm run build
 npm run dev
+npm run dev:proxy
 npm run start:prod
 ```
 
-含义：
-
-- `npm start`：推荐入口，先构建再启动
+- `npm start`：先构建再启动本地聚合服务
 - `npm run build`：只构建 `dist/`
-- `npm run dev`：监听 `server.js`
-- `npm run start:prod`：当前与 `npm start` 一样，都会先构建再启动
+- `npm run dev`：启动 Vite 前端开发服务，默认端口 `5173`
+- `npm run dev:proxy`：启动本地聚合服务，给 Vite 代理 `/api` 和 `/ws`
+- `npm run start:prod`：和 `npm start` 一样，都会先构建再启动
 
 ## 运行模式
 
-### 1. 远程模式
+### 远程模式
 
-默认就是远程模式。
-
-页面在本地跑，但数据来自远程上游：
+默认就是远程模式。  
+页面在本地运行，但数据来自远程上游：
 
 - `status`
 - `tasks/stats`
@@ -58,9 +53,9 @@ npm run start:prod
 - `tasks/:id/retry`
 - `tasks/:id/resolve`
 
-### 2. 本地模式
+### 本地模式
 
-如果你本机启动了后端，可以在启动前设置：
+如果本机启动了本地后端，启动前可以设置：
 
 ```bash
 OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
@@ -80,12 +75,12 @@ OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
 
 `OPENCLAW_STATIC_ROOT` 支持：
 
-- `dist`：强制服务构建产物
-- `source`：强制服务源码目录
+- `dist`：显式指定服务构建产物
+- 其他自定义目录：用于特殊静态资源目录覆盖
 
 ## 本地接口
 
-前端本地服务会对浏览器暴露这些接口：
+前端本地服务会向浏览器暴露这些接口：
 
 - `GET /api/openclaw/status`
 - `GET /api/tasks/stats`
@@ -99,4 +94,4 @@ OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
 
 - 不写运行日志文件
 - 静态资源以构建产物为准
-- 文档只保留当前模式，不写过期方案
+- 当前前端主入口是 Vue + Vite，地图仍由 Phaser 负责

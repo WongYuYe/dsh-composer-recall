@@ -1,3 +1,9 @@
+import Phaser from "phaser";
+import atlasImageUrl from "../../assets/phaser/atlas/atlas.png";
+import atlasJsonUrl from "../../assets/phaser/atlas/atlas.json?url";
+import townMapUrl from "../../assets/phaser/tilemaps/town.json?url";
+import tilesetUrl from "../../assets/phaser/tilesets/tuxemon.png";
+
 import {
   DOOR_OPEN_MS,
   INDOOR_SETTLE_MS,
@@ -43,6 +49,52 @@ import {
   let game = null;
   let sceneRef = null;
   let pendingState = null;
+  const TOWN_AGENT_SLOTS = {
+    rest: [
+      { x: 6.0, y: 15.0 },
+      { x: 7.2, y: 15.8 },
+      { x: 5.3, y: 16.0 },
+      { x: 7.8, y: 14.6 },
+    ],
+    work: [
+      { x: 16.0, y: 15.0 },
+      { x: 17.2, y: 15.8 },
+      { x: 15.2, y: 16.0 },
+      { x: 17.8, y: 14.6 },
+    ],
+    alarm: [
+      { x: 27.0, y: 14.8 },
+      { x: 28.0, y: 15.6 },
+      { x: 26.0, y: 15.5 },
+      { x: 28.2, y: 13.8 },
+    ],
+  };
+  const ROOM_LOCAL_AGENT_SLOTS = {
+    rest: [
+      { x: 7.2, y: 13.6 },
+      { x: 9.6, y: 12.7 },
+      { x: 14.8, y: 12.9 },
+      { x: 16.4, y: 13.8 },
+    ],
+    work: [
+      { x: 7.4, y: 13.1 },
+      { x: 9.7, y: 12.3 },
+      { x: 12.7, y: 12.3 },
+      { x: 15.4, y: 13.3 },
+    ],
+    alarm: [
+      { x: 7.4, y: 13.2 },
+      { x: 9.8, y: 12.9 },
+      { x: 13.0, y: 12.9 },
+      { x: 15.6, y: 13.2 },
+    ],
+  };
+  const ROOM_REMOTE_AGENT_SLOTS = [
+    { x: 4.0, y: 5.0 },
+    { x: 8.0, y: 5.0 },
+    { x: 12.0, y: 5.0 },
+    { x: 16.0, y: 5.0 },
+  ];
 
   function createRoomTextures(scene) {
     createCanvasTexture(scene, "room-floor-rest", 32, 32, (ctx) => {
@@ -330,9 +382,9 @@ import {
     }
 
     preload() {
-      this.load.tilemapTiledJSON("openclaw-town", "./assets/phaser/tilemaps/town.json");
-      this.load.image("openclaw-tiles", "./assets/phaser/tilesets/tuxemon.png");
-      this.load.atlas("openclaw-atlas", "./assets/phaser/atlas/atlas.png", "./assets/phaser/atlas/atlas.json");
+      this.load.tilemapTiledJSON("openclaw-town", townMapUrl);
+      this.load.image("openclaw-tiles", tilesetUrl);
+      this.load.atlas("openclaw-atlas", atlasImageUrl, atlasJsonUrl);
     }
 
     create() {
@@ -383,6 +435,8 @@ import {
         .setDepth(92)
         .setVisible(false);
       this.agentMarkers = [];
+      this.lastRenderedAgentIds = [];
+      this.lastRenderedAgents = [];
       this.roomGlow = this.add.graphics().setDepth(70);
       this.roomGlow.setVisible(false);
       this.alertLightGraphics = this.add.graphics().setDepth(80);
@@ -397,6 +451,362 @@ import {
         .setDepth(191)
         .setScrollFactor(0)
         .setVisible(false);
+    }
+
+    clearAgentMarkers() {
+      (this.agentMarkers || []).forEach((node) => {
+        if (node?.__agentTimer && typeof node.__agentTimer.remove === "function") {
+          node.__agentTimer.remove(false);
+          node.__agentTimer = null;
+        }
+        if (node?.__agentTween && typeof node.__agentTween.stop === "function") {
+          node.__agentTween.stop();
+          node.__agentTween = null;
+        }
+        if (node && typeof node.destroy === "function") {
+          node.destroy();
+        }
+      });
+      this.agentMarkers = [];
+      this.lastRenderedAgentIds = [];
+      this.lastRenderedAgents = [];
+    }
+
+    getAgentAccent(zone) {
+      if (zone === "alarm") {
+        return "#ff9a7d";
+      }
+
+      if (zone === "work") {
+        return "#7bc8ff";
+      }
+
+      return "#f1a14d";
+    }
+
+    getTownAgentMarkerPosition(agent, slotIndex = 0) {
+      const explicit = agent?.mapPosition || agent?.position;
+      if (
+        explicit
+        && Number.isFinite(explicit.x)
+        && Number.isFinite(explicit.y)
+      ) {
+        return explicit;
+      }
+
+      const zone = agent?.zone || "rest";
+      const slots = TOWN_AGENT_SLOTS[zone] || TOWN_AGENT_SLOTS.rest;
+      return slots[slotIndex % slots.length];
+    }
+
+    getRoomAgentMarkerPosition(agent, activeZone, slotIndex = 0, remoteSlotIndex = 0) {
+      if (agent?.zone === activeZone) {
+        if (
+          agent?.position
+          && Number.isFinite(agent.position.x)
+          && Number.isFinite(agent.position.y)
+        ) {
+          return agent.position;
+        }
+        const slots = ROOM_LOCAL_AGENT_SLOTS[activeZone] || ROOM_LOCAL_AGENT_SLOTS.work;
+        return slots[slotIndex % slots.length];
+      }
+
+      return ROOM_REMOTE_AGENT_SLOTS[remoteSlotIndex % ROOM_REMOTE_AGENT_SLOTS.length];
+    }
+
+    getAgentMarkerAlpha(agent) {
+      return agent?.enabled === false ? 0.2 : 0.54;
+    }
+
+    getAgentRoamProfile(agent, isTownView, isRemoteAgent = false) {
+      const fallback = {
+        durationMs: isTownView ? 1500 : 1900,
+        pauseMs: isTownView ? 520 : 760,
+        offsets: isTownView
+          ? [
+              { x: 0, y: 0 },
+              { x: 0.42, y: 0.18 },
+              { x: -0.32, y: 0.24 },
+              { x: 0.18, y: -0.22 },
+              { x: -0.22, y: -0.14 },
+            ]
+          : isRemoteAgent
+            ? [
+                { x: 0, y: 0 },
+                { x: 0.22, y: 0.08 },
+                { x: -0.2, y: 0.1 },
+                { x: 0.12, y: -0.12 },
+              ]
+            : [
+                { x: 0, y: 0 },
+                { x: 0.36, y: 0.18 },
+                { x: -0.28, y: 0.22 },
+                { x: 0.16, y: -0.18 },
+                { x: -0.18, y: -0.12 },
+              ],
+      };
+      const agentId = String(agent?.id || "").toLowerCase();
+      const profiles = {
+        main: {
+          durationMs: isTownView ? 1380 : 1760,
+          pauseMs: isTownView ? 420 : 640,
+          offsets: isTownView
+            ? [
+                { x: 0, y: 0 },
+                { x: 0.48, y: 0.12 },
+                { x: -0.3, y: 0.22 },
+                { x: 0.16, y: -0.18 },
+                { x: -0.2, y: -0.08 },
+              ]
+            : isRemoteAgent
+              ? [
+                  { x: 0, y: 0 },
+                  { x: 0.28, y: 0.06 },
+                  { x: -0.22, y: 0.1 },
+                  { x: 0.12, y: -0.12 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0.4, y: 0.16 },
+                  { x: -0.24, y: 0.2 },
+                  { x: 0.18, y: -0.18 },
+                  { x: -0.18, y: -0.08 },
+                ],
+        },
+        executor: {
+          durationMs: isTownView ? 920 : 1260,
+          pauseMs: isTownView ? 260 : 420,
+          offsets: isTownView
+            ? [
+                { x: 0, y: 0 },
+                { x: 0.56, y: 0.1 },
+                { x: -0.18, y: 0.12 },
+                { x: 0.34, y: -0.1 },
+                { x: -0.12, y: -0.06 },
+              ]
+            : isRemoteAgent
+              ? [
+                  { x: 0, y: 0 },
+                  { x: 0.32, y: 0.04 },
+                  { x: -0.16, y: 0.06 },
+                  { x: 0.18, y: -0.08 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0.44, y: 0.14 },
+                  { x: -0.18, y: 0.12 },
+                  { x: 0.24, y: -0.14 },
+                ],
+        },
+        research: {
+          durationMs: isTownView ? 1980 : 2360,
+          pauseMs: isTownView ? 760 : 980,
+          offsets: isTownView
+            ? [
+                { x: 0, y: 0 },
+                { x: 0.26, y: 0.32 },
+                { x: -0.36, y: 0.28 },
+                { x: 0.18, y: -0.28 },
+                { x: -0.14, y: -0.22 },
+              ]
+            : isRemoteAgent
+              ? [
+                  { x: 0, y: 0 },
+                  { x: 0.18, y: 0.12 },
+                  { x: -0.16, y: 0.14 },
+                  { x: 0.08, y: -0.16 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0.22, y: 0.3 },
+                  { x: -0.3, y: 0.24 },
+                  { x: 0.16, y: -0.24 },
+                  { x: -0.12, y: -0.18 },
+                ],
+        },
+        ops: {
+          durationMs: isTownView ? 1640 : 2100,
+          pauseMs: isTownView ? 620 : 860,
+          offsets: isTownView
+            ? [
+                { x: 0, y: 0 },
+                { x: 0.52, y: 0.18 },
+                { x: -0.42, y: 0.18 },
+                { x: 0.24, y: -0.18 },
+                { x: -0.24, y: -0.18 },
+              ]
+            : isRemoteAgent
+              ? [
+                  { x: 0, y: 0 },
+                  { x: 0.34, y: 0.08 },
+                  { x: -0.3, y: 0.08 },
+                  { x: 0.14, y: -0.1 },
+                ]
+              : [
+                  { x: 0, y: 0 },
+                  { x: 0.42, y: 0.18 },
+                  { x: -0.34, y: 0.2 },
+                  { x: 0.2, y: -0.16 },
+                  { x: -0.2, y: -0.16 },
+                ],
+        },
+      };
+
+      return profiles[agentId] || fallback;
+    }
+
+    buildAgentRoamPoints(tilePosition, offsets) {
+      const normalizedOffsets = Array.isArray(offsets) && offsets.length > 0
+        ? offsets
+        : [{ x: 0, y: 0 }];
+
+      return normalizedOffsets.map((offset) => ({
+        x: tilePosition.x + offset.x,
+        y: tilePosition.y + offset.y,
+      }));
+    }
+
+    setAgentMarkerIdleFrame(sprite, direction = "front") {
+      const idleFrame = {
+        left: "misa-left",
+        right: "misa-right",
+        back: "misa-back",
+        front: "misa-front",
+      }[direction] || "misa-front";
+      sprite.stop();
+      sprite.setFrame(idleFrame);
+    }
+
+    startAgentMarkerRoam(container, sprite, roamPoints, roamProfile, isTownView) {
+      if (!container || !sprite || !Array.isArray(roamPoints) || roamPoints.length <= 1) {
+        return;
+      }
+
+      const durationMs = Math.max(Number(roamProfile?.durationMs) || 1500, 320);
+      const pauseMs = Math.max(Number(roamProfile?.pauseMs) || 520, 120);
+      let cursor = 1;
+      const scheduleNext = () => {
+        if (!container.scene) {
+          return;
+        }
+
+        const point = roamPoints[cursor % roamPoints.length];
+        cursor += 1;
+        const { x, y } = this.getWorldPosition(point, isTownView);
+        const dx = x - container.x;
+        const dy = y - container.y;
+        const direction = Math.abs(dx) > Math.abs(dy)
+          ? (dx >= 0 ? "right" : "left")
+          : (dy >= 0 ? "front" : "back");
+
+        sprite.play(`walk-${direction}`, true);
+        container.__agentTween = this.tweens.add({
+          targets: container,
+          x,
+          y,
+          duration: durationMs,
+          ease: "Sine.InOut",
+          onComplete: () => {
+            this.setAgentMarkerIdleFrame(sprite, direction);
+            if (!container.scene) {
+              return;
+            }
+            container.__agentTimer = this.time.delayedCall(pauseMs, scheduleNext);
+          },
+          onStop: () => {
+            this.setAgentMarkerIdleFrame(sprite, direction);
+          },
+        });
+      };
+
+      container.__agentTimer = this.time.delayedCall(Math.max(Math.round(pauseMs * 0.6), 180), scheduleNext);
+    }
+
+    renderAgentMarkers(state = null) {
+      this.clearAgentMarkers();
+
+      const agents = Array.isArray(state?.openclaw?.agents)
+        ? state.openclaw.agents.filter(Boolean)
+        : [];
+
+      if (agents.length === 0) {
+        this.nameplate.setText(state?.focusedAgentId || "main");
+        return;
+      }
+
+      const focusedId = state?.focusedAgentId || "main";
+      const focusedAgent = agents.find((agent) => agent.id === focusedId) || agents[0] || null;
+      const isTownView = this.currentView === "town";
+      const activeZone = state?.zone || this.currentZone || focusedAgent?.zone || "rest";
+      const zoneSlots = new Map();
+      let remoteSlotIndex = 0;
+
+      this.nameplate.setText(focusedAgent?.id || focusedId);
+
+      agents
+        .filter((agent) => !focusedAgent || agent.id !== focusedAgent.id)
+        .forEach((agent) => {
+          const slotKey = isTownView
+            ? (agent.zone || "rest")
+            : agent.zone === activeZone
+              ? `room:${activeZone}`
+              : "room:remote";
+          const slotIndex = zoneSlots.get(slotKey) || 0;
+          zoneSlots.set(slotKey, slotIndex + 1);
+
+          const tilePosition = isTownView
+            ? this.getTownAgentMarkerPosition(agent, slotIndex)
+            : this.getRoomAgentMarkerPosition(agent, activeZone, slotIndex, remoteSlotIndex);
+
+          if (!isTownView && agent.zone !== activeZone) {
+            remoteSlotIndex += 1;
+          }
+
+          const isRemoteAgent = !isTownView && agent.zone !== activeZone;
+          const roamProfile = this.getAgentRoamProfile(agent, isTownView, isRemoteAgent);
+          const roamPoints = this.buildAgentRoamPoints(tilePosition, roamProfile.offsets);
+          const spawnPoint = roamPoints[0] || tilePosition;
+          const { x, y } = this.getWorldPosition(spawnPoint, isTownView);
+          const accent = this.getAgentAccent(agent.zone);
+          const markerDepth = isTownView ? 87 : 94;
+          const spriteScale = isTownView ? 0.8 : 1.16;
+          const markerAlpha = this.getAgentMarkerAlpha(agent);
+          const labelText = !isTownView && agent.zone !== activeZone
+            ? `${agent.id} @${agent.zone || "rest"}`
+            : agent.id;
+
+          const shadow = this.add.ellipse(0, isTownView ? 4 : 7, isTownView ? 20 : 26, isTownView ? 8 : 10, 0x11161b, 0.4)
+            .setVisible(true);
+          const sprite = this.add.sprite(0, 0, "openclaw-atlas", "misa-front")
+            .setScale(spriteScale)
+            .setAlpha(1);
+          const label = this.add.text(
+            0,
+            -(isTownView ? 16 : 28),
+            labelText,
+            squareStyle("#f7f3d6", accent, isTownView ? "10px" : "12px"),
+          )
+            .setOrigin(0.5, 1)
+            .setAlpha(0.92);
+          const container = this.add.container(x, y, [shadow, sprite, label])
+            .setDepth(markerDepth)
+            .setAlpha(markerAlpha);
+          container.__agentId = agent.id;
+          container.__agentZone = agent.zone || "";
+
+          this.setAgentMarkerIdleFrame(sprite);
+          this.startAgentMarkerRoam(container, sprite, roamPoints, roamProfile, isTownView);
+          this.agentMarkers.push(container);
+          this.lastRenderedAgentIds.push(agent.id);
+          this.lastRenderedAgents.push({
+            id: agent.id,
+            zone: agent.zone || "",
+            x: container.x,
+            y: container.y,
+            isTownView,
+          });
+        });
     }
 
     clearPreviewTimer() {
@@ -698,6 +1108,7 @@ import {
       this.transitioningRoomZone = "";
       this.buildTownView(zone);
       this.updateViewState(zone, state?.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(state);
 
       await this.runOutdoorPatrolLoop(state, sequenceId, {
         startPoint: this.resolveOutdoorPosition(state) || this.getOutdoorRoute(state)[0] || this.getTownDoorWalkTarget(zone),
@@ -751,6 +1162,8 @@ import {
           return;
         }
 
+        this.renderAgentMarkers(latestState);
+
         const target = route[cursor];
         cursor = (cursor + 1) % route.length;
 
@@ -797,6 +1210,7 @@ import {
       this.showTransitionBanner(exitZone, `推门离开${ROOM_THEMES[exitZone]?.title || exitZone}`);
       this.buildTownView(targetZone);
       this.updateViewState(targetZone, state?.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(state);
       this.transitioningRoomZone = "";
 
       const outdoorDoorPoint = this.getTownDoorWalkTarget(exitZone);
@@ -840,6 +1254,7 @@ import {
       const currentTownPoint = this.getCurrentTownTilePosition();
       this.buildTownView(zone);
       this.updateViewState(zone, state.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(state);
 
       const route = this.getTownPatrolRoute(zone);
       const startPoint = currentTownPoint || route[0];
@@ -923,6 +1338,7 @@ import {
 
       this.buildTownView(targetZone);
       this.updateViewState(targetZone, state.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(state);
       const sourceOutdoorDoor = this.getTownDoorWalkTarget(sourceZone);
       this.teleportRobot(sourceOutdoorDoor, state.alertLevel, targetZone, true);
 
@@ -991,6 +1407,7 @@ import {
 
       this.buildRoomView(zone);
       this.updateViewState(zone, latestState.alertLevel || "OFFLINE");
+      this.renderAgentMarkers(latestState);
       this.showTransitionBanner(zone, `${ROOM_THEMES[zone]?.title || zone} · 就位中`);
 
       const entryTile = this.getRoomEntryTile(zone);
@@ -1364,6 +1781,7 @@ import {
 
         if (sameOutdoorExit) {
           this.updateViewState(this.currentZone || state.zone, state.alertLevel || "OFFLINE");
+          this.renderAgentMarkers(state);
           return;
         }
 
@@ -1378,6 +1796,7 @@ import {
         }
 
         this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
+        this.renderAgentMarkers(state);
         return;
       }
 
@@ -1402,11 +1821,13 @@ import {
 
       if (this.transitioningRoomZone === state.zone) {
         this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
+        this.renderAgentMarkers(state);
         return;
       }
 
       if (samePreview) {
         this.updateViewState(state.zone, state.alertLevel || "OFFLINE");
+        this.renderAgentMarkers(state);
         return;
       }
 
@@ -1426,21 +1847,8 @@ import {
       const agents = Array.isArray(state?.openclaw?.agents) ? state.openclaw.agents : [];
       const focusedAgent = agents.find((item) => item.id === (state?.focusedAgentId || 'main')) || agents.find((item) => item.id === 'main') || agents[0] || null;
       this.nameplate.setText(focusedAgent?.id || state?.focusedAgentId || 'main');
+      this.renderAgentMarkers(state);
       void this.moveRobotTo(position, alertLevel, zone, 280, this.currentView === "town");
-      (this.agentMarkers || []).forEach((node) => node.destroy());
-      this.agentMarkers = [];
-      agents.filter((item) => !focusedAgent || item.id !== focusedAgent.id).forEach((agent) => {
-        const pos = this.currentView === 'town'
-          ? TOWN_ZONE_DOORS[agent.zone]?.walkTo || { x: 6, y: 15 }
-          : ROOM_ENTRY_TILES[agent.zone] || { x: 10, y: 13 };
-        const x = this.currentView === 'town' ? tileToWorldX(pos.x) : roomTileToWorldX(pos.x);
-        const y = this.currentView === 'town' ? tileToWorldY(pos.y) : roomTileToWorldY(pos.y);
-        const label = this.add.text(x, y - (this.currentView === 'town' ? 14 : 24), agent.id, squareStyle('#f7f3d6', agent.zone === 'alarm' ? '#ff9a7d' : agent.zone === 'work' ? '#7bc8ff' : '#f1a14d', this.currentView === 'town' ? '10px' : '12px'))
-          .setOrigin(0.5, 1)
-          .setDepth(93)
-          .setAlpha(0.9);
-        this.agentMarkers.push(label);
-      });
     }
 
     clearRobot() {
@@ -1448,8 +1856,7 @@ import {
       this.player.setVisible(false);
       this.shadow.setVisible(false);
       this.nameplate.setVisible(false);
-      (this.agentMarkers || []).forEach((node) => node.destroy());
-      this.agentMarkers = [];
+      this.clearAgentMarkers();
     }
   }
 
@@ -1458,12 +1865,12 @@ import {
   }
 
   function init(container) {
-    if (game || !container || !window.Phaser) {
+    if (game || !container) {
       return;
     }
 
-    game = new window.Phaser.Game({
-      type: window.Phaser.CANVAS,
+    game = new Phaser.Game({
+      type: Phaser.CANVAS,
       parent: container,
       width: ROOM_WORLD_W,
       height: ROOM_WORLD_H,
@@ -1471,8 +1878,8 @@ import {
       pixelArt: true,
       antialias: false,
       scale: {
-        mode: window.Phaser.Scale.FIT,
-        autoCenter: window.Phaser.Scale.CENTER_BOTH,
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
         width: ROOM_WORLD_W,
         height: ROOM_WORLD_H,
       },
@@ -1499,6 +1906,35 @@ import {
     init,
     apply,
     resize,
+    getDebugState() {
+      const scene = ensureScene();
+      if (!scene) {
+        return null;
+      }
+
+      return {
+        currentView: scene.currentView,
+        currentZone: scene.currentZone,
+        focusedAgentId: pendingState?.focusedAgentId || "main",
+        agentMarkerIds: Array.isArray(scene.lastRenderedAgentIds) ? [...scene.lastRenderedAgentIds] : [],
+        agents: Array.isArray(scene.agentMarkers)
+          ? scene.agentMarkers.map((marker) => ({
+              id: marker?.__agentId || "",
+              zone: marker?.__agentZone || "",
+              x: marker?.x ?? null,
+              y: marker?.y ?? null,
+            }))
+          : [],
+        sourceAgents: Array.isArray(pendingState?.openclaw?.agents)
+          ? pendingState.openclaw.agents.map((agent) => ({
+              id: agent?.id || "",
+              zone: agent?.zone || "",
+              position: agent?.position || null,
+              mapPosition: agent?.mapPosition || null,
+            }))
+          : [],
+      };
+    },
     clearRobot() {
       ensureScene()?.clearRobot();
     },

@@ -272,7 +272,7 @@ function createDashboardHelpers(config) {
       return "work";
     }
     if (["alarm", "alert", "warning", "danger", "警报", "告警", "异常"].some((token) => raw.includes(token))) {
-      return "alarm";
+      return "work";
     }
 
     return "";
@@ -296,10 +296,10 @@ function createDashboardHelpers(config) {
 
     if (doingCount !== null || blockedCount !== null || taskCount !== null || runningCount !== null || failedCount !== null) {
       if ((failedCount || blockedCount || 0) > 0) {
-        return "alarm";
+        return "work";
       }
       if ((runningCount || doingCount || 0) > 0) {
-        return alarmLike ? "alarm" : "work";
+        return "work";
       }
       if (mainRecentlyActive) {
         return "work";
@@ -311,15 +311,12 @@ function createDashboardHelpers(config) {
       return "work";
     }
 
-    return alarmLike ? "alarm" : "rest";
+    return alarmLike ? "work" : "rest";
   }
 
   function zonePosition(zone) {
     if (zone === "work") {
       return { x: 17, y: 7 };
-    }
-    if (zone === "alarm") {
-      return { x: 18, y: 13 };
     }
     return { x: 4, y: 6 };
   }
@@ -426,10 +423,10 @@ function createDashboardHelpers(config) {
     }
 
     const defaultZones = {
-      main: zone === "alarm" ? "alarm" : "work",
+      main: "work",
       research: zone === "work" ? "work" : "rest",
       executor: zone === "work" ? "work" : "rest",
-      ops: zone === "alarm" ? "alarm" : "rest",
+      ops: "rest",
     };
 
     return configuredAgents.map((agent, index) => {

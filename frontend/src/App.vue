@@ -12,7 +12,6 @@ const activeZone = computed(() => dashboard.viewState.value?.zone || "");
 const zonePills = [
   { id: "rest", label: "休息区" },
   { id: "work", label: "工作区" },
-  { id: "alarm", label: "警报区" },
 ];
 </script>
 

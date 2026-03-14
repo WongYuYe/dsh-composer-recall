@@ -111,7 +111,7 @@ export function normalizeZone(value) {
   }
 
   if (normalized.includes("alarm") || normalized.includes("alert")) {
-    return "alarm";
+    return "work";
   }
 
   if (normalized.includes("work")) {
@@ -486,7 +486,7 @@ function resolveFocusedTask(state, focusedAgent, primaryAgentId) {
 
 function deriveZone(taskStats, runtime) {
   if ((runtime?.queueSummary?.failed || 0) > 0 || (taskStats?.blocked || 0) > 0) {
-    return "alarm";
+    return "work";
   }
 
   if ((runtime?.queueSummary?.running || 0) > 0 || (taskStats?.doing || 0) > 0) {
@@ -574,7 +574,7 @@ function buildAgentFallbackTask(agent, zone) {
     return `会话中：${agent.session.key}`;
   }
 
-  if (agent?.status === "blocked" || zone === "alarm") {
+  if (agent?.status === "blocked") {
     return "警报处理中";
   }
 

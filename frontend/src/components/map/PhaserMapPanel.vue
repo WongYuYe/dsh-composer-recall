@@ -79,7 +79,6 @@ watch(
         <div class="map-legend">
           <span><i class="legend-chip legend-chip--rest"></i>休息区</span>
           <span><i class="legend-chip legend-chip--work"></i>工作区</span>
-          <span><i class="legend-chip legend-chip--alarm"></i>警报区</span>
           <span><i class="legend-chip legend-chip--robot"></i>Agent 位置</span>
         </div>
       </div>

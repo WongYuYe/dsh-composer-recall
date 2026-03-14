@@ -4,7 +4,6 @@ const externalConfig = window.OPENCLAW_CONFIG || {};
 export const zoneLabels = {
   rest: "休息区",
   work: "工作区",
-  alarm: "警报区",
   system: "系统",
 };
 
@@ -46,13 +45,11 @@ export const idleActivityLabels = {
 export const zoneAnchors = {
   rest: { x: 5, y: 11 },
   work: { x: 13, y: 7 },
-  alarm: { x: 20, y: 11 },
 };
 
 export const zoneRenderBounds = {
   rest: { minX: 6, maxX: 13, minY: 8, maxY: 12 },
   work: { minX: 8, maxX: 14, minY: 8, maxY: 11 },
-  alarm: { minX: 7, maxX: 13, minY: 8, maxY: 12 },
 };
 
 const endpointOverride = urlParams.get("endpoint");
@@ -91,5 +88,4 @@ export function applyDashboardCssVars() {
   document.documentElement.style.setProperty("--map-height", "72");
   document.documentElement.style.setProperty("--zone-rest-top", "24");
   document.documentElement.style.setProperty("--zone-side-offset", "4");
-  document.documentElement.style.setProperty("--zone-alarm-bottom", "8");
 }

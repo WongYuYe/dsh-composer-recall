@@ -18,7 +18,7 @@ export function createRawCacheService({ cfg, runOpenClaw }) {
   }
 
   async function readCachedRaw(key, ttlMs, loader, options = {}) {
-    const { force = false } = options;
+    const { force = false, allowStale = true } = options;
     const entry = rawCache[key];
     const now = Date.now();
 
@@ -26,26 +26,47 @@ export function createRawCacheService({ cfg, runOpenClaw }) {
       return entry.value;
     }
 
+    const startRefresh = () => {
+      const task = (async () => {
+        try {
+          const value = await loader();
+          if (value !== null && value !== undefined) {
+            entry.value = value;
+            entry.fetchedAtMs = Date.now();
+            return value;
+          }
+
+          return entry.value;
+        } catch (error) {
+          if (entry.value !== null && entry.value !== undefined) {
+            return entry.value;
+          }
+          throw error;
+        }
+      })();
+
+      entry.inFlight = task;
+      task.finally(() => {
+        if (entry.inFlight === task) {
+          entry.inFlight = null;
+        }
+      });
+
+      return task;
+    };
+
+    if (!force && allowStale && entry.value !== null && entry.value !== undefined) {
+      if (!entry.inFlight) {
+        void startRefresh();
+      }
+      return entry.value;
+    }
+
     if (!force && entry.inFlight) {
       return entry.inFlight;
     }
 
-    const task = (async () => {
-      const value = await loader();
-      if (value !== null && value !== undefined) {
-        entry.value = value;
-        entry.fetchedAtMs = Date.now();
-      }
-      return value;
-    })();
-
-    entry.inFlight = task;
-
-    try {
-      return await task;
-    } finally {
-      entry.inFlight = null;
-    }
+    return startRefresh();
   }
 
   async function getStatusRaw(options = {}) {

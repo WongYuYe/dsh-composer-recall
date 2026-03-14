@@ -787,12 +787,33 @@ export function buildTaskDetail(viewState) {
     : null);
 
   if (!task && !queue && !focusedAgent?.session?.key) {
+    if (!focusedAgent) {
+      return {
+        visible: false,
+        status: "idle",
+        meta: "",
+        title: "",
+        summary: "",
+      };
+    }
+
+    const disabled = focusedAgent.enabled === false;
+    const updatedAt = focusedAgent.updatedAt || viewState.updatedAt || null;
+
     return {
-      visible: false,
+      visible: true,
       status: "idle",
-      meta: "",
-      title: "",
-      summary: "",
+      meta: updatedAt
+        ? `最近更新 ${formatShortTime(updatedAt)}`
+        : disabled
+          ? "当前未启用"
+          : "当前无任务",
+      title: disabled
+        ? `${focusedAgent.id} 已停用`
+        : `${focusedAgent.id} 当前无任务`,
+      summary: disabled
+        ? "该 Agent 当前未启用，暂未接收任务。"
+        : "该 Agent 当前没有匹配中的任务，正在等待新的安排。",
     };
   }
 

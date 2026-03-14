@@ -715,7 +715,7 @@ import {
     getAgentMarkerAlpha(agent, isFocused = false) {
       void isFocused;
       if (agent?.enabled === false) {
-        return 0.42;
+        return 0.72;
       }
 
       return 0.96;

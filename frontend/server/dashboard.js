@@ -401,6 +401,27 @@ function createDashboardHelpers(config) {
       : `${projectName} · 共 ${total ?? 0} 项 · 进行中 ${doing ?? 0}${blockedText}`;
   }
 
+  function inferDerivedAgentStatus(agentId, recent, zone, alertLevel) {
+    if (alertLevel === "RED" && agentId === "ops") {
+      return "blocked";
+    }
+
+    const age = toFiniteNumber(recent?.age);
+    if (age === null || age >= 5 * 60 * 1000) {
+      return "offline";
+    }
+
+    if (zone === "rest") {
+      return "resting";
+    }
+
+    if (zone === "work") {
+      return agentId === "main" ? "running" : "standby";
+    }
+
+    return "standby";
+  }
+
   function deriveAgentStatesFromStatus(status, zone, alertLevel) {
     if (Array.isArray(status?.openclaw?.agents) && status.openclaw.agents.length > 0) {
       return status.openclaw.agents.map((agent) => ({
@@ -432,12 +453,7 @@ function createDashboardHelpers(config) {
     return configuredAgents.map((agent, index) => {
       const agentId = String(agent?.agentId || "").trim();
       const recent = recentByAgent.get(agentId) || null;
-      const age = toFiniteNumber(recent?.age);
-      const statusValue = alertLevel === "RED" && agentId === "ops"
-        ? "blocked"
-        : age !== null && age < 5 * 60 * 1000
-          ? (zone === "rest" && agentId !== "main" ? "idle" : "running")
-          : "idle";
+      const statusValue = inferDerivedAgentStatus(agentId, recent, zone, alertLevel);
 
       return {
         id: agentId,
@@ -555,7 +571,7 @@ function createDashboardHelpers(config) {
       } else if ((runningCount || doingCount || 0) > 0) {
         task = `进行中任务 ${runningCount || doingCount || 0} 项`;
       } else {
-        task = "Idle";
+        task = "待命中";
       }
     }
 

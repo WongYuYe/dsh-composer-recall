@@ -137,7 +137,7 @@ const zonePills = [
                 class="agent-chip"
                 :data-status="dashboard.taskDetail.value.status"
               >
-                {{ dashboard.taskDetail.value.status }}
+                {{ dashboard.taskDetail.value.statusLabel }}
               </span>
               <span id="taskDetailMeta" class="task-detail__meta">
                 {{ dashboard.taskDetail.value.meta }}

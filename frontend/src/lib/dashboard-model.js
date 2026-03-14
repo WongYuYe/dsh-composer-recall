@@ -9,6 +9,21 @@ import {
 
 const AGENT_ORDER = ["main", "research", "executor", "ops"];
 
+const STATUS_LABELS = {
+  resting: "\u4f11\u606f\u4e2d",
+  standby: "\u5f85\u547d\u4e2d",
+  offline: "\u672a\u540c\u6b65",
+  running: "\u5904\u7406\u4e2d",
+  blocked: "\u5f85\u5904\u7406\u5f02\u5e38",
+  idle: "\u5f85\u547d\u4e2d",
+  active: "\u5904\u7406\u4e2d",
+  doing: "\u8fdb\u884c\u4e2d",
+  queued: "\u6392\u961f\u4e2d",
+  failed: "\u6267\u884c\u5931\u8d25",
+  done: "\u5df2\u5b8c\u6210",
+  todo: "\u5f85\u5f00\u59cb",
+};
+
 export function firstDefined(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") {
@@ -160,6 +175,41 @@ export function normalizeIdleActivity(value) {
   return normalized.replace(/\s+/g, "_");
 }
 
+export function formatStatusLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return STATUS_LABELS[normalized] || normalized || STATUS_LABELS.standby;
+}
+
+function normalizeAgentStatus(value, zone = "rest", hasSession = false) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (["blocked", "failed", "error"].includes(normalized)) {
+    return "blocked";
+  }
+
+  if (["running", "doing", "active", "busy"].includes(normalized)) {
+    return "running";
+  }
+
+  if (["resting", "rest"].includes(normalized)) {
+    return "resting";
+  }
+
+  if (["standby", "queued", "waiting", "pending", "todo"].includes(normalized)) {
+    return "standby";
+  }
+
+  if (["offline", "disconnected", "unreachable"].includes(normalized)) {
+    return "offline";
+  }
+
+  if (!hasSession) {
+    return "offline";
+  }
+
+  return zone === "rest" ? "resting" : "standby";
+}
+
 function parsePositionNumber(value) {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -215,6 +265,7 @@ function normalizeLogs(input) {
 
 function normalizeAgent(agent) {
   const zone = normalizeZone(agent?.zone) || "rest";
+  const hasSession = agent?.session && typeof agent.session === "object";
   const rawPosition = firstDefined(
     agent?.position,
     agent?.coords,
@@ -234,7 +285,7 @@ function normalizeAgent(agent) {
     source: String(agent?.source || "").trim() || "unknown",
     active: agent?.active === true || Boolean(agent?.session),
     zone,
-    status: String(agent?.status || "idle").trim().toLowerCase() || "idle",
+    status: normalizeAgentStatus(agent?.status, zone, hasSession),
     heartbeatEvery: String(agent?.heartbeatEvery || "").trim(),
     heartbeatEveryMs: safeNumber(agent?.heartbeatEveryMs),
     position,
@@ -565,44 +616,56 @@ function buildDescription(root, taskStats, runtime, zone, focusedAgentLabel) {
   return `${focusedAgentLabel} 当前位于${zoneLabels[zone] || zone}。`;
 }
 
-function buildAgentFallbackTask(agent, zone) {
+function buildFocusedAgentTaskTitle(agent, zone) {
+  const status = normalizeAgentStatus(agent?.status, zone, Boolean(agent?.session));
+
   if (agent?.enabled === false) {
-    return "已停用";
+    return "\u5df2\u505c\u7528";
   }
 
   if (agent?.session?.key) {
-    return `会话中：${agent.session.key}`;
+    return `\u4f1a\u8bdd\u4e2d\uff1a${agent.session.key}`;
   }
 
-  if (agent?.status === "blocked") {
-    return "警报处理中";
+  if (status === "blocked") {
+    return "\u8b66\u62a5\u5904\u7406\u4e2d";
   }
 
-  if (agent?.active || agent?.status === "running") {
-    return "处理中";
+  if (status === "running" || agent?.active) {
+    return "\u5904\u7406\u4e2d";
   }
 
-  if (zone === "work") {
-    return "待处理任务";
+  if (status === "resting") {
+    return "\u4f11\u606f\u4e2d";
   }
 
-  return "待命中";
+  if (status === "offline") {
+    return "\u672a\u540c\u6b65";
+  }
+
+  if (zone === "work" || status === "standby") {
+    return "\u5f85\u5904\u7406\u4efb\u52a1";
+  }
+
+  return "\u5f85\u547d\u4e2d";
 }
 
-function buildAgentFallbackDescription(agent, zone) {
+function buildFocusedAgentDescription(agent, zone) {
+  const status = normalizeAgentStatus(agent?.status, zone, Boolean(agent?.session));
+
   if (agent?.enabled === false) {
-    return `${agent.id} 当前已停用。`;
+    return `${agent.id} \u5f53\u524d\u5df2\u505c\u7528\u3002`;
   }
 
   if (agent?.session?.key) {
-    return `当前会话：${agent.session.key}`;
+    return `\u5f53\u524d\u4f1a\u8bdd\uff1a${agent.session.key}`;
   }
 
   if (agent?.active && Number.isFinite(agent?.session?.age)) {
-    return `${agent.id} 最近一次活跃在 ${Math.round(agent.session.age / 1000)} 秒前。`;
+    return `${agent.id} \u6700\u8fd1\u4e00\u6b21\u6d3b\u8dc3\u5728 ${Math.round(agent.session.age / 1000)} \u79d2\u524d\u3002`;
   }
 
-  return `${agent.id} 当前位于${zoneLabels[zone] || zone}，状态为 ${agent.status || "idle"}。`;
+  return `${agent.id} \u5f53\u524d\u4f4d\u4e8e${zoneLabels[zone] || zone}\uff0c\u72b6\u6001\u4e3a ${formatStatusLabel(status)}\u3002`;
 }
 
 export function buildDashboardState(statusPayload, taskStatsPayload, taskRuntimePayload) {
@@ -725,10 +788,10 @@ export function buildFocusedViewState(state, focusedAgentId) {
       ? `会话中：${focusedAgent.session.key}`
       : ownsGlobalTask
         ? state.task
-        : buildAgentFallbackTask(focusedAgent, focusedZone);
+        : buildFocusedAgentTaskTitle(focusedAgent, focusedZone);
   const fallbackDescription = ownsGlobalTask
     ? state.description
-    : buildAgentFallbackDescription(focusedAgent, focusedZone);
+    : buildFocusedAgentDescription(focusedAgent, focusedZone);
   const description = focusedTask
     ? buildTaskDescription(focusedTask, fallbackDescription)
     : focusedAgent.session?.key
@@ -767,7 +830,8 @@ export function buildTaskDetail(viewState) {
   if (!viewState) {
     return {
       visible: false,
-      status: "idle",
+      status: "standby",
+      statusLabel: formatStatusLabel("standby"),
       meta: "",
       title: "",
       summary: "",
@@ -790,7 +854,8 @@ export function buildTaskDetail(viewState) {
     if (!focusedAgent) {
       return {
         visible: false,
-        status: "idle",
+        status: "standby",
+        statusLabel: formatStatusLabel("standby"),
         meta: "",
         title: "",
         summary: "",
@@ -808,12 +873,13 @@ export function buildTaskDetail(viewState) {
 
     return {
       visible: true,
-      status: "idle",
+      status: focusedAgent.status || "standby",
+      statusLabel: formatStatusLabel(focusedAgent.status || "standby"),
       meta: metaBits.join(" · "),
-      title: buildAgentFallbackTask(focusedAgent, zone),
+      title: buildFocusedAgentTaskTitle(focusedAgent, zone),
       summary: disabled
-        ? buildAgentFallbackDescription(focusedAgent, zone)
-        : `${buildAgentFallbackDescription(focusedAgent, zone)} 暂无可展示的任务明细。`,
+        ? buildFocusedAgentDescription(focusedAgent, zone)
+        : `${buildFocusedAgentDescription(focusedAgent, zone)} 暂无可展示的任务明细。`,
     };
   }
 
@@ -841,7 +907,8 @@ export function buildTaskDetail(viewState) {
 
   return {
     visible: true,
-    status: String(task?.status || (queue?.running ? "running" : "idle")).toLowerCase(),
+    status: String(task?.status || (queue?.running ? "running" : "standby")).toLowerCase(),
+    statusLabel: formatStatusLabel(String(task?.status || (queue?.running ? "running" : "standby")).toLowerCase()),
     meta: metaBits.join(" · ") || "暂无运行任务",
     title: task?.title || `${focusedAgent?.id || "main"} 当前没有运行任务`,
     summary: summaryBits.join(" · ") || "系统运行稳定，正在等待下一项安排。",

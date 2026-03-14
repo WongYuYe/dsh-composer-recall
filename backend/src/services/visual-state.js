@@ -130,7 +130,7 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
       ? 'doing'
       : baseStatus === 'failed'
         ? 'blocked'
-        : baseStatus === 'idle'
+        : ['idle', 'resting', 'standby', 'offline'].includes(baseStatus)
           ? 'todo'
           : baseStatus || 'todo';
     const title = String(
@@ -449,20 +449,24 @@ export function createVisualStateService({ cfg, sanitize, rawCacheService }) {
   }
 
   function inferAgentStatus(agentId, recentSession, currentZone, alertLevel) {
-    if (!recentSession) {
-      return 'idle';
-    }
-
-    const ageMs = toFiniteNumber(recentSession.age);
+    const ageMs = toFiniteNumber(recentSession?.age);
     if (alertLevel === 'RED' && agentId === 'ops') {
       return 'blocked';
     }
 
-    if (ageMs !== null && ageMs < 5 * 60 * 1000) {
-      return currentZone === 'rest' && agentId !== 'main' ? 'idle' : 'running';
+    if (ageMs === null || ageMs >= 5 * 60 * 1000) {
+      return 'offline';
     }
 
-    return 'idle';
+    if (currentZone === 'rest') {
+      return 'resting';
+    }
+
+    if (currentZone === 'work' || currentZone === 'alarm') {
+      return agentId === 'main' ? 'running' : 'standby';
+    }
+
+    return 'standby';
   }
 
   function loadConfiguredAgentsFallback() {

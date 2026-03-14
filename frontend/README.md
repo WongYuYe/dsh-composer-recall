@@ -20,7 +20,7 @@ npm start
 
 - `http://127.0.0.1:3008/`
 
-`npm start` 会先执行 `vite build`，再启动 [server.js](/D:/Code/pokemon-claw/frontend/server.js)。  
+`npm start` 会先执行 `vite build`，再启动 [server.js](./server.js)。 
 服务固定提供 `dist/`，`index.html` 不缓存，构建产物使用 hash 文件名。
 
 ## 常用脚本

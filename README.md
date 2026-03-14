@@ -68,6 +68,6 @@ OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
 
 ## 进一步说明
 
-- 前端说明见 [frontend/README.md](/D:/Code/pokemon-claw/frontend/README.md)
-- 后端说明见 [backend/README.md](/D:/Code/pokemon-claw/backend/README.md)
-- 当前架构说明见 [docs/ARCHITECTURE_CURRENT_2026-03-13.md](/D:/Code/pokemon-claw/docs/ARCHITECTURE_CURRENT_2026-03-13.md)
+- 前端说明见 [frontend/README.md](./frontend/README.md)
+- 后端说明见 [backend/README.md](./backend/README.md)
+- 产品文档见 [docs/PRODUCT_CURRENT_2026-03-14.md](./docs/PRODUCT_CURRENT_2026-03-14.md)

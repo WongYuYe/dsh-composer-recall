@@ -89,6 +89,13 @@ function isWebSocketOpen(socket) {
   return Boolean(socket) && socket.readyState === WebSocket.OPEN;
 }
 
+const agentSourceLabels = {
+  "status-payload": "实时状态",
+  heartbeat: "心跳推导",
+  config: "配置兜底",
+  unknown: "未知来源",
+};
+
 export function useOpenClawDashboard() {
   const rawStatus = ref(null);
   const rawTaskStats = ref(null);
@@ -226,6 +233,25 @@ export function useOpenClawDashboard() {
   const syncBadgeText = computed(() => syncBadgeLabels[connectionState.value] || syncBadgeLabels.offline);
   const syncBadgeClass = computed(() => `sync-badge sync-badge--${connectionState.value}`);
   const clockText = computed(() => `${formatClock(now.value)} 北京时间`);
+  const agentSummary = computed(() => {
+    const summary = dashboardState.value?.openclaw?.summary || {};
+    const configured = Number(summary.configuredAgentCount);
+    const active = Number(summary.activeAgentCount);
+    const source = String(summary.agentSource || "").trim() || "unknown";
+    const fallbackConfigured = agents.value.length;
+    const fallbackActive = agents.value.filter((agent) => agent.active).length;
+    const configuredCount = Number.isFinite(configured) ? configured : fallbackConfigured;
+    const activeCount = Number.isFinite(active) ? active : fallbackActive;
+
+    return {
+      visible: configuredCount > 0 || activeCount > 0,
+      source,
+      sourceLabel: agentSourceLabels[source] || source,
+      configuredCount,
+      activeCount,
+      state: activeCount <= 0 ? "empty" : activeCount < configuredCount ? "partial" : "full",
+    };
+  });
   const zoneName = computed(() => viewState.value?.zoneName || "连接中");
   const taskName = computed(() => viewState.value?.task || "正在同步状态");
   const taskSummary = computed(() => latestError.value || viewState.value?.description || "等待后台返回最新状态。");
@@ -454,6 +480,7 @@ export function useOpenClawDashboard() {
 
   return {
     agents,
+    agentSummary,
     clockText,
     criticalMessage,
     focusedAgentId,

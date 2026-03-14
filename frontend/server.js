@@ -45,16 +45,19 @@ async function createDevStaticMiddleware(config) {
     },
   });
 
-  return (req, res) => new Promise((resolve, reject) => {
-    vite.middlewares(req, res, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+  return {
+    close: () => vite.close(),
+    handle: (req, res) => new Promise((resolve, reject) => {
+      vite.middlewares(req, res, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
 
-      resolve();
-    });
-  });
+        resolve();
+      });
+    }),
+  };
 }
 
 async function main() {
@@ -245,7 +248,7 @@ async function main() {
 
     if (req.method === "GET") {
       if (devStaticMiddleware) {
-        devStaticMiddleware(req, res)
+        devStaticMiddleware.handle(req, res)
           .then(() => {
             if (!res.writableEnded) {
               serveStaticFile(req.url || url.pathname, res, req).catch(() => {
@@ -272,6 +275,30 @@ async function main() {
 
   createWsGateway(server, config, streamService);
   server.listen(config.port, config.host);
+
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    const cleanup = [];
+    cleanup.push(new Promise((resolve) => {
+      server.close(() => resolve());
+    }));
+
+    if (devStaticMiddleware?.close) {
+      cleanup.push(devStaticMiddleware.close().catch(() => {}));
+    }
+
+    Promise.allSettled(cleanup).finally(() => {
+      process.exit(0);
+    });
+  };
+
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 }
 
 main().catch(() => {

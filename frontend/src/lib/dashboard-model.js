@@ -443,6 +443,46 @@ function buildDescription(root, taskStats, runtime, zone, focusedAgentLabel) {
   return `${focusedAgentLabel} 当前位于${zoneLabels[zone] || zone}。`;
 }
 
+function buildAgentFallbackTask(agent, zone) {
+  if (agent?.enabled === false) {
+    return "已停用";
+  }
+
+  if (agent?.session?.key) {
+    return `会话中：${agent.session.key}`;
+  }
+
+  if (agent?.status === "blocked" || zone === "alarm") {
+    return "警报处理中";
+  }
+
+  if (agent?.active || agent?.status === "running") {
+    return "处理中";
+  }
+
+  if (zone === "work") {
+    return "待处理任务";
+  }
+
+  return "待命中";
+}
+
+function buildAgentFallbackDescription(agent, zone) {
+  if (agent?.enabled === false) {
+    return `${agent.id} 当前已停用。`;
+  }
+
+  if (agent?.session?.key) {
+    return `当前会话：${agent.session.key}`;
+  }
+
+  if (agent?.active && Number.isFinite(agent?.session?.age)) {
+    return `${agent.id} 最近一次活跃在 ${Math.round(agent.session.age / 1000)} 秒前。`;
+  }
+
+  return `${agent.id} 当前位于${zoneLabels[zone] || zone}，状态为 ${agent.status || "idle"}。`;
+}
+
 export function buildDashboardState(statusPayload, taskStatsPayload, taskRuntimePayload) {
   const root = statusPayload?.robot || statusPayload?.data || statusPayload;
   if (!root || typeof root !== "object") {
@@ -534,10 +574,15 @@ export function buildFocusedViewState(state, focusedAgentId) {
       ...state,
       focusedAgentId: focusedAgentId || "main",
       focusedAgent: null,
+      ownsGlobalTask: true,
       zoneName: state.zoneLabel,
     };
   }
 
+  const primaryAgentId = state.agents.find((agent) => agent.id === "main")?.id
+    || state.agents[0]?.id
+    || focusedAgent.id;
+  const ownsGlobalTask = focusedAgent.id === primaryAgentId;
   const focusedZone = normalizeZone(focusedAgent.zone) || state.zone || "rest";
   const sharesPrimaryZone = focusedZone === state.zone;
   const position = focusedAgent.position
@@ -551,17 +596,23 @@ export function buildFocusedViewState(state, focusedAgentId) {
       ? cloneValue(state.mapPosition)
       : projectPositionIntoZone(position, focusedZone);
   const scene = sharesPrimaryZone ? state.scene : "room";
-  const task = focusedAgent.session?.key ? `Active: ${focusedAgent.session.key}` : state.task;
+  const task = focusedAgent.session?.key
+    ? `会话中：${focusedAgent.session.key}`
+    : ownsGlobalTask
+      ? state.task
+      : buildAgentFallbackTask(focusedAgent, focusedZone);
   const description = focusedAgent.session?.key
     ? `当前会话：${focusedAgent.session.key}`
-    : sharesPrimaryZone
+    : ownsGlobalTask
       ? state.description
-      : `${focusedAgent.id} 当前位于${zoneLabels[focusedZone] || focusedZone}，状态为 ${focusedAgent.status || "idle"}。`;
+      : buildAgentFallbackDescription(focusedAgent, focusedZone);
 
   return {
     ...state,
     focusedAgentId: focusedAgent.id,
     focusedAgent,
+    primaryAgentId,
+    ownsGlobalTask,
     zone: focusedZone,
     zoneLabel: zoneLabels[focusedZone] || focusedZone,
     zoneName: `${focusedAgent.id} · ${zoneLabels[focusedZone] || focusedZone}`,
@@ -591,14 +642,17 @@ export function buildTaskDetail(viewState) {
   }
 
   const focusedAgent = viewState.focusedAgent;
-  const queue = viewState.runtime?.queueSummary || null;
+  const ownsGlobalTask = viewState.ownsGlobalTask !== false;
+  const queue = ownsGlobalTask ? viewState.runtime?.queueSummary || null : null;
   const task = focusedAgent?.session?.key
     ? {
         status: focusedAgent.status || "active",
         title: focusedAgent.session.key,
         progress: focusedAgent.session.percentUsed,
       }
-    : viewState.actionableTask || viewState.runtime?.currentTask || null;
+    : ownsGlobalTask
+      ? viewState.actionableTask || viewState.runtime?.currentTask || null
+      : null;
 
   if (!task && !queue && !focusedAgent?.session?.key) {
     return {
@@ -642,7 +696,7 @@ export function buildTaskDetail(viewState) {
 }
 
 export function buildTaskActions(viewState, inFlight, taskActionMessage) {
-  const task = viewState?.actionableTask || null;
+  const task = viewState?.ownsGlobalTask === false ? null : viewState?.actionableTask || null;
   const actions = Array.isArray(task?.availableActions) ? task.availableActions : [];
   const showRetry = actions.includes("retry");
   const showResolve = actions.includes("resolve");

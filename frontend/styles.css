@@ -273,6 +273,21 @@ body::after {
   gap: 12px;
 }
 
+.telemetry-card__summary {
+  margin: 0;
+  color: rgba(244, 241, 207, 0.78);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.telemetry-card__summary[data-state="partial"] {
+  color: var(--amber);
+}
+
+.telemetry-card__summary[data-state="empty"] {
+  color: #f59871;
+}
+
 .agent-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

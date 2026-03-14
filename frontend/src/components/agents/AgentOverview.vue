@@ -38,9 +38,11 @@ function formatStatus(agent) {
         <div class="agent-mini__name">{{ agent.id }}</div>
         <div class="agent-mini__meta">
           {{ zoneLabels[agent.zone] || agent.zone }} /
-          {{ agent.status || "idle" }}
+          {{ formatStatus(agent) }}
         </div>
-        <div class="agent-mini__task">{{ agent.session?.key || "待命" }}</div>
+        <div class="agent-mini__task">
+          {{ agent.session?.key || (agent.enabled === false ? "已停用" : "待命") }}
+        </div>
       </button>
     </div>
   </div>

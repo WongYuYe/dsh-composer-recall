@@ -124,6 +124,16 @@ const zonePills = [
           </div>
         </div>
 
+        <p
+          v-if="dashboard.agentSummary.value.visible"
+          class="telemetry-card__summary"
+          :data-state="dashboard.agentSummary.value.state"
+        >
+          来源：{{ dashboard.agentSummary.value.sourceLabel }} · 已配置
+          {{ dashboard.agentSummary.value.configuredCount }} · 活跃
+          {{ dashboard.agentSummary.value.activeCount }}
+        </p>
+
         <AgentOverview
           :agents="dashboard.agents.value"
           :focused-agent-id="dashboard.focusedAgentId.value"

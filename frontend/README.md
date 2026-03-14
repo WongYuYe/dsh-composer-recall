@@ -20,24 +20,22 @@ npm start
 
 - `http://127.0.0.1:3008/`
 
-`npm start` 会先执行 `vite build`，再启动 [server.js](./server.js)。 
-服务固定提供 `dist/`，`index.html` 不缓存，构建产物使用 hash 文件名。
+`npm start` 会在 `3008` 启动本地开发服务，并监听本地文件改动：
+
+- 前端源码改动由 Vite 中间件热更新
+- `server.js` 或服务端聚合代码改动由 `node --watch` 自动重启
 
 ## 常用脚本
 
 ```bash
 npm start
 npm run build
-npm run dev
-npm run dev:proxy
 npm run start:prod
 ```
 
-- `npm start`：先构建再启动本地聚合服务
+- `npm start`：启动本地开发服务并监听文件改动
 - `npm run build`：只构建 `dist/`
-- `npm run dev`：启动 Vite 前端开发服务，默认端口 `5173`
-- `npm run dev:proxy`：启动本地聚合服务，给 Vite 代理 `/api` 和 `/ws`
-- `npm run start:prod`：和 `npm start` 一样，都会先构建再启动
+- `npm run start:prod`：先构建 `dist/` 再启动生产态本地服务
 
 ## 运行模式
 

@@ -61,6 +61,56 @@ const zonePills = [
         </div>
 
         <div class="mission-card">
+          <div
+            class="status-block"
+            :hidden="!dashboard.systemOverview.value.visible"
+          >
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">系统总览</p>
+              </div>
+            </div>
+
+            <div class="metric-grid metric-grid--minimal">
+              <dl class="metric-box metric-box--highlight">
+                <dt>系统模式</dt>
+                <dd>{{ dashboard.systemOverview.value.mode }}</dd>
+              </dl>
+              <dl class="metric-box">
+                <dt>全局告警</dt>
+                <dd
+                  class="status-metric__value"
+                  :data-alert="dashboard.systemOverview.value.alertLevel"
+                >
+                  {{ dashboard.systemOverview.value.alertText }}
+                </dd>
+              </dl>
+              <dl class="metric-box">
+                <dt>任务总数</dt>
+                <dd>{{ dashboard.systemOverview.value.taskCount }}</dd>
+              </dl>
+              <dl class="metric-box">
+                <dt>活跃 Agent</dt>
+                <dd>{{ dashboard.systemOverview.value.activeAgents }}</dd>
+              </dl>
+            </div>
+
+            <p class="status-block__summary">
+              {{ dashboard.systemOverview.value.summary }}
+            </p>
+          </div>
+
+          <div
+            class="transport-banner"
+            :hidden="!dashboard.transportBanner.value.visible"
+            :data-state="dashboard.transportBanner.value.state"
+          >
+            <strong>{{ dashboard.transportBanner.value.title }}</strong>
+            <span>{{ dashboard.transportBanner.value.detail }}</span>
+          </div>
+
+          <div class="status-divider"></div>
+
           <div class="card-heading">
             <div>
               <p class="eyebrow">当前视角</p>

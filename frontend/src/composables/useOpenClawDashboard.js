@@ -96,6 +96,32 @@ const agentSourceLabels = {
   unknown: "未知来源",
 };
 
+function toCount(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : fallback;
+}
+
+function formatAgeMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return "";
+  }
+
+  if (numeric < 1000) {
+    return "刚刚";
+  }
+
+  if (numeric < 60 * 1000) {
+    return `${Math.round(numeric / 1000)} 秒前`;
+  }
+
+  if (numeric < 60 * 60 * 1000) {
+    return `${Math.round(numeric / (60 * 1000))} 分钟前`;
+  }
+
+  return `${Math.round(numeric / (60 * 60 * 1000))} 小时前`;
+}
+
 export function useOpenClawDashboard() {
   const rawStatus = ref(null);
   const rawTaskStats = ref(null);
@@ -229,10 +255,86 @@ export function useOpenClawDashboard() {
     taskActionInFlight.value,
     taskActionMessage.value,
   ));
-  const criticalMessage = computed(() => buildCriticalMessage(viewState.value) || latestError.value);
+  const criticalMessage = computed(() => buildCriticalMessage(viewState.value));
   const syncBadgeText = computed(() => syncBadgeLabels[connectionState.value] || syncBadgeLabels.offline);
   const syncBadgeClass = computed(() => `sync-badge sync-badge--${connectionState.value}`);
   const clockText = computed(() => `${formatClock(now.value)} 北京时间`);
+  const systemOverview = computed(() => {
+    const state = dashboardState.value;
+    const runtime = state?.runtime || {};
+    const taskStats = state?.taskStats || {};
+    const summary = state?.openclaw?.summary || {};
+    const queueSummary = runtime.queueSummary || {};
+    const configuredAgents = Number(summary.configuredAgentCount);
+    const activeAgents = Number(summary.activeAgentCount);
+    const totalTasks = toCount(taskStats.total, toCount(state?.taskCount, 0));
+    const runningTasks = toCount(queueSummary.running, toCount(taskStats.doing, 0));
+    const failedTasks = toCount(queueSummary.failed, toCount(taskStats.blocked, 0));
+    const queuedTasks = toCount(queueSummary.queued, toCount(taskStats.todo, 0));
+    const activeAgentCount = Number.isFinite(activeAgents)
+      ? activeAgents
+      : agents.value.filter((agent) => agent.active).length;
+    const configuredAgentCount = Number.isFinite(configuredAgents)
+      ? configuredAgents
+      : agents.value.length;
+
+    return {
+      visible: Boolean(state),
+      mode: state?.mode || "未知",
+      alertText: state?.alertText || "未知",
+      alertLevel: state?.alertLevel || "OFFLINE",
+      taskCount: totalTasks,
+      activeAgents: activeAgentCount,
+      summary: [
+        `队列 ${queuedTasks} 项`,
+        `运行中 ${runningTasks} 项`,
+        failedTasks > 0 ? `失败 ${failedTasks} 项` : "",
+        `活跃 Agent ${activeAgentCount}/${configuredAgentCount}`,
+      ].filter(Boolean).join(" · "),
+    };
+  });
+  const transportBanner = computed(() => {
+    const meta = rawStatus.value?._meta || {};
+    const ageText = formatAgeMs(meta.ageMs);
+
+    if (latestError.value) {
+      return {
+        visible: true,
+        state: connectionState.value,
+        title: connectionState.value === "offline" ? "链路异常" : "同步降级",
+        detail: ageText
+          ? `${latestError.value} · 当前显示 ${ageText} 的最近可用状态`
+          : latestError.value,
+      };
+    }
+
+    if (connectionState.value === "syncing") {
+      return {
+        visible: true,
+        state: "syncing",
+        title: "同步中",
+        detail: ageText
+          ? `正在刷新最新状态，当前显示 ${ageText} 的可用数据`
+          : "正在刷新最新状态",
+      };
+    }
+
+    if (connectionState.value === "offline") {
+      return {
+        visible: true,
+        state: "offline",
+        title: "链路离线",
+        detail: "当前无法获取最新状态，请检查上游服务或网络连接",
+      };
+    }
+
+    return {
+      visible: false,
+      state: "online",
+      title: "",
+      detail: "",
+    };
+  });
   const agentSummary = computed(() => {
     const summary = dashboardState.value?.openclaw?.summary || {};
     const configured = Number(summary.configuredAgentCount);
@@ -488,12 +590,14 @@ export function useOpenClawDashboard() {
     performTaskAction,
     phaserState,
     selectAgent,
+    systemOverview,
     syncBadgeClass,
     syncBadgeText,
     taskActions,
     taskDetail,
     taskName,
     taskSummary,
+    transportBanner,
     viewState,
     zoneName,
   };

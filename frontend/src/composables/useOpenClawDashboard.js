@@ -87,6 +87,10 @@ async function requestJson(url, options = {}) {
   }
 }
 
+function isWebSocketOpen(socket) {
+  return Boolean(socket) && socket.readyState === WebSocket.OPEN;
+}
+
 export function useOpenClawDashboard() {
   const rawStatus = ref(null);
   const rawTaskStats = ref(null);
@@ -100,13 +104,101 @@ export function useOpenClawDashboard() {
   const now = ref(Date.now());
 
   let clockTimer = 0;
-  let pollTimer = 0;
+  let refreshTimer = 0;
   let reconnectTimer = 0;
   let websocket = null;
+  let refreshInFlight = null;
+  let lastRefreshStartedAt = 0;
+  let lastWsActivityAt = 0;
+  let disposed = false;
 
   function syncEmbeddedTaskState(payload) {
     rawTaskStats.value = payload?.openclaw?.tasks || null;
     rawTaskRuntime.value = payload?.openclaw?.runtime || null;
+  }
+
+  function hasHealthyWebSocket() {
+    if (!CONFIG.wsEndpoint || disposed) {
+      return false;
+    }
+
+    if (isWebSocketOpen(websocket)) {
+      return true;
+    }
+
+    return lastWsActivityAt > 0 && Date.now() - lastWsActivityAt < CONFIG.wsHealthyWindowMs;
+  }
+
+  function getRefreshDelayMs() {
+    const baseDelay = connectionState.value === "offline"
+      ? CONFIG.offlinePollIntervalMs
+      : connectionState.value === "syncing"
+        ? CONFIG.syncingPollIntervalMs
+        : CONFIG.pollIntervalMs;
+
+    if (document.visibilityState === "hidden") {
+      return baseDelay * CONFIG.hiddenTabPollMultiplier;
+    }
+
+    return baseDelay;
+  }
+
+  function clearRefreshTimer() {
+    clearTimeout(refreshTimer);
+    refreshTimer = 0;
+  }
+
+  function clearReconnectTimer() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+  }
+
+  function scheduleRefresh(delayMs = getRefreshDelayMs(), forceRefresh = false) {
+    clearRefreshTimer();
+
+    if (disposed) {
+      return;
+    }
+
+    const effectiveDelay = !forceRefresh && hasHealthyWebSocket()
+      ? Math.max(CONFIG.wsHealthyWindowMs, delayMs)
+      : delayMs;
+
+    refreshTimer = window.setTimeout(() => {
+      refreshTimer = 0;
+
+      if (!forceRefresh && hasHealthyWebSocket()) {
+        scheduleRefresh();
+        return;
+      }
+
+      void refreshAll(forceRefresh);
+    }, effectiveDelay);
+  }
+
+  function scheduleReconnect() {
+    clearReconnectTimer();
+
+    if (disposed || !CONFIG.wsEndpoint) {
+      return;
+    }
+
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = 0;
+      connectWs();
+    }, CONFIG.wsReconnectDelayMs);
+  }
+
+  function applyStatusPayload(payload, source = "http") {
+    rawStatus.value = payload;
+    syncEmbeddedTaskState(payload);
+    if (payload?._meta?.lastEventId !== undefined) {
+      lastEventId.value = normalizeEventCursor(payload._meta.lastEventId);
+    }
+
+    const degraded = Boolean(payload?._meta?.degraded);
+    latestError.value = degraded ? (payload?._meta?.lastError || payload?.description || "") : "";
+    connectionState.value = degraded && source !== "ws" ? "syncing" : "online";
   }
 
   const dashboardState = computed(() => buildDashboardState(
@@ -170,23 +262,55 @@ export function useOpenClawDashboard() {
       buildAbsoluteUrl(CONFIG.endpoint, forceRefresh ? { refresh: "1" } : null),
       { method: "GET" },
     );
-    rawStatus.value = payload;
-    syncEmbeddedTaskState(payload);
-    if (payload?._meta?.lastEventId !== undefined) {
-      lastEventId.value = normalizeEventCursor(payload._meta.lastEventId);
-    }
-    latestError.value = "";
-    connectionState.value = "online";
+    applyStatusPayload(payload, "http");
     return payload;
   }
 
   async function refreshAll(forceRefresh = false) {
-    try {
-      await refreshStatus(forceRefresh);
-    } catch (error) {
-      latestError.value = error?.message || "状态同步失败";
-      connectionState.value = rawStatus.value ? "syncing" : "offline";
+    if (refreshInFlight) {
+      return refreshInFlight;
     }
+
+    if (!forceRefresh && Date.now() - lastRefreshStartedAt < CONFIG.minRefreshGapMs) {
+      return rawStatus.value;
+    }
+
+    lastRefreshStartedAt = Date.now();
+
+    const task = (async () => {
+      try {
+        return await refreshStatus(forceRefresh);
+      } catch (error) {
+        latestError.value = error?.message || "状态同步失败";
+        connectionState.value = rawStatus.value ? "syncing" : "offline";
+        return rawStatus.value;
+      } finally {
+        scheduleRefresh();
+      }
+    })();
+
+    refreshInFlight = task.finally(() => {
+      if (refreshInFlight === task) {
+        refreshInFlight = null;
+      }
+    });
+
+    return refreshInFlight;
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === "visible") {
+      if (hasHealthyWebSocket()) {
+        clearRefreshTimer();
+        scheduleRefresh();
+        return;
+      }
+
+      void refreshAll(false);
+      return;
+    }
+
+    scheduleRefresh();
   }
 
   function handleWsMessage(event) {
@@ -197,10 +321,14 @@ export function useOpenClawDashboard() {
       return;
     }
 
+    lastWsActivityAt = Date.now();
+    clearRefreshTimer();
+
     if (message?.type === "hello") {
       if (message.latestEventId !== undefined) {
         lastEventId.value = normalizeEventCursor(message.latestEventId);
       }
+      scheduleRefresh();
       return;
     }
 
@@ -213,10 +341,12 @@ export function useOpenClawDashboard() {
     if (message?.type === "error") {
       latestError.value = message.error || "状态流同步失败";
       connectionState.value = rawStatus.value ? "syncing" : "offline";
+      scheduleRefresh(CONFIG.syncingPollIntervalMs);
       return;
     }
 
     if (message?.type !== "status") {
+      scheduleRefresh();
       return;
     }
 
@@ -225,19 +355,17 @@ export function useOpenClawDashboard() {
     }
 
     if (message.mode === "snapshot") {
-      rawStatus.value = message.payload || null;
+      applyStatusPayload(message.payload || null, "ws");
     } else if (message.mode === "patch") {
-      rawStatus.value = applyMergePatch(rawStatus.value || {}, message.patch || {});
+      applyStatusPayload(applyMergePatch(rawStatus.value || {}, message.patch || {}), "ws");
     }
 
-    syncEmbeddedTaskState(rawStatus.value);
-    latestError.value = "";
-    connectionState.value = "online";
+    scheduleRefresh();
   }
 
   function connectWs() {
     const url = buildWsUrl(lastEventId.value);
-    if (!url) {
+    if (!url || disposed) {
       return;
     }
 
@@ -249,18 +377,32 @@ export function useOpenClawDashboard() {
     websocket = new WebSocket(url);
     websocket.addEventListener("message", handleWsMessage);
     websocket.addEventListener("open", () => {
+      if (disposed) {
+        return;
+      }
+
+      lastWsActivityAt = Date.now();
       connectionState.value = rawStatus.value ? "online" : "syncing";
+      clearRefreshTimer();
+      scheduleRefresh();
     });
     websocket.addEventListener("error", () => {
+      if (disposed) {
+        return;
+      }
+
       connectionState.value = rawStatus.value ? "syncing" : "offline";
+      scheduleRefresh(CONFIG.syncingPollIntervalMs);
     });
     websocket.addEventListener("close", () => {
       websocket = null;
+      if (disposed) {
+        return;
+      }
+
       connectionState.value = rawStatus.value ? "syncing" : "offline";
-      clearTimeout(reconnectTimer);
-      reconnectTimer = window.setTimeout(() => {
-        connectWs();
-      }, CONFIG.wsReconnectDelayMs);
+      scheduleReconnect();
+      scheduleRefresh(CONFIG.syncingPollIntervalMs);
     });
   }
 
@@ -303,20 +445,17 @@ export function useOpenClawDashboard() {
     clockTimer = window.setInterval(() => {
       now.value = Date.now();
     }, 1000);
-    pollTimer = window.setInterval(() => {
-      if (connectionState.value === "online") {
-        return;
-      }
-      void refreshAll(false);
-    }, CONFIG.pollIntervalMs);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     void refreshAll(true);
     connectWs();
   });
 
   onBeforeUnmount(() => {
+    disposed = true;
     clearInterval(clockTimer);
-    clearInterval(pollTimer);
-    clearTimeout(reconnectTimer);
+    clearRefreshTimer();
+    clearReconnectTimer();
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
     if (websocket) {
       websocket.close();
       websocket = null;

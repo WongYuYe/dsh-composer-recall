@@ -84,6 +84,8 @@ function createConfig() {
     agentTurnUrl: process.env.OPENCLAW_AGENT_TURN_URL || `${upstreamBaseUrl}/api/openclaw/agent/turn`,
     taskStatsTimeoutMs: Number(process.env.OPENCLAW_TASK_STATS_TIMEOUT_MS || 5000),
     taskRuntimeTimeoutMs: Number(process.env.OPENCLAW_TASK_RUNTIME_TIMEOUT_MS || process.env.OPENCLAW_TASK_STATS_TIMEOUT_MS || 5000),
+    taskStatsTtlMs: Number(process.env.OPENCLAW_TASK_STATS_TTL_MS || 10000),
+    taskRuntimeTtlMs: Number(process.env.OPENCLAW_TASK_RUNTIME_TTL_MS || 8000),
     agentTurnTimeoutMs: Number(process.env.OPENCLAW_AGENT_TURN_TIMEOUT_MS || 30000),
     taskStatsAuthToken,
     openclawApiKeys: discoverOpenclawApiKeys(),

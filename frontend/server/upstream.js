@@ -1,4 +1,73 @@
 function createUpstreamClient(config, dashboardHelpers) {
+  const responseCache = {
+    taskStats: { value: null, fetchedAtMs: 0, inFlight: null },
+    taskRuntime: { value: null, fetchedAtMs: 0, inFlight: null },
+  };
+
+  function clearResponseCaches(keys = Object.keys(responseCache)) {
+    for (const key of keys) {
+      if (!responseCache[key]) {
+        continue;
+      }
+
+      responseCache[key].value = null;
+      responseCache[key].fetchedAtMs = 0;
+      responseCache[key].inFlight = null;
+    }
+  }
+
+  async function readCachedResponse(key, ttlMs, loader, options = {}) {
+    const { force = false, allowStale = true } = options;
+    const entry = responseCache[key];
+    const now = Date.now();
+
+    if (!force && entry.value && now - entry.fetchedAtMs < ttlMs) {
+      return entry.value;
+    }
+
+    const startRefresh = () => {
+      const task = (async () => {
+        try {
+          const value = await loader();
+          if (value !== null && value !== undefined) {
+            entry.value = value;
+            entry.fetchedAtMs = Date.now();
+            return value;
+          }
+
+          return entry.value;
+        } catch (error) {
+          if (entry.value !== null && entry.value !== undefined) {
+            return entry.value;
+          }
+          throw error;
+        }
+      })();
+
+      entry.inFlight = task;
+      task.finally(() => {
+        if (entry.inFlight === task) {
+          entry.inFlight = null;
+        }
+      });
+
+      return task;
+    };
+
+    if (!force && allowStale && entry.value !== null && entry.value !== undefined) {
+      if (!entry.inFlight) {
+        void startRefresh();
+      }
+      return entry.value;
+    }
+
+    if (!force && entry.inFlight) {
+      return entry.inFlight;
+    }
+
+    return startRefresh();
+  }
+
   function getTaskEndpointCandidates(explicitUrl, pathname) {
     const fromEnv = String(explicitUrl || "")
       .split(",")
@@ -186,84 +255,88 @@ function createUpstreamClient(config, dashboardHelpers) {
     return ["http://127.0.0.1:8787/api/openclaw/agent/turn"];
   }
 
-  async function fetchTaskStatsAsync() {
-    const candidates = getTaskStatsCandidates();
-    const headerVariants = buildUpstreamHeaderVariants();
+  async function fetchTaskStatsAsync(options = {}) {
+    return readCachedResponse("taskStats", config.taskStatsTtlMs, async () => {
+      const candidates = getTaskStatsCandidates();
+      const headerVariants = buildUpstreamHeaderVariants();
 
-    for (const url of candidates) {
-      for (const headers of headerVariants) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), config.taskStatsTimeoutMs);
+      for (const url of candidates) {
+        for (const headers of headerVariants) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), config.taskStatsTimeoutMs);
 
-        try {
-          const response = await fetch(url, {
-            method: "GET",
-            cache: "no-store",
-            headers,
-            signal: controller.signal,
-          });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              cache: "no-store",
+              headers,
+              signal: controller.signal,
+            });
 
-          if (!response.ok) {
-            continue;
+            if (!response.ok) {
+              continue;
+            }
+
+            const payload = await response.json();
+            const derived = dashboardHelpers.deriveTaskStatsFromPayload(payload);
+            if (derived) {
+              return {
+                ...derived,
+                source: config.taskStatsUrl ? "task-stats-endpoint" : `task-stats-auto:${url}`,
+              };
+            }
+          } catch {
+            // try next
+          } finally {
+            clearTimeout(timeoutId);
           }
-
-          const payload = await response.json();
-          const derived = dashboardHelpers.deriveTaskStatsFromPayload(payload);
-          if (derived) {
-            return {
-              ...derived,
-              source: config.taskStatsUrl ? "task-stats-endpoint" : `task-stats-auto:${url}`,
-            };
-          }
-        } catch {
-          // try next
-        } finally {
-          clearTimeout(timeoutId);
         }
       }
-    }
 
-    return null;
+      return null;
+    }, options);
   }
 
-  async function fetchTaskRuntimeAsync() {
-    const candidates = getTaskRuntimeCandidates();
-    const headerVariants = buildUpstreamHeaderVariants();
+  async function fetchTaskRuntimeAsync(options = {}) {
+    return readCachedResponse("taskRuntime", config.taskRuntimeTtlMs, async () => {
+      const candidates = getTaskRuntimeCandidates();
+      const headerVariants = buildUpstreamHeaderVariants();
 
-    for (const url of candidates) {
-      for (const headers of headerVariants) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), config.taskRuntimeTimeoutMs);
+      for (const url of candidates) {
+        for (const headers of headerVariants) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), config.taskRuntimeTimeoutMs);
 
-        try {
-          const response = await fetch(url, {
-            method: "GET",
-            cache: "no-store",
-            headers,
-            signal: controller.signal,
-          });
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              cache: "no-store",
+              headers,
+              signal: controller.signal,
+            });
 
-          if (!response.ok) {
-            continue;
+            if (!response.ok) {
+              continue;
+            }
+
+            const payload = await response.json();
+            const derived = dashboardHelpers.deriveTaskRuntimeFromPayload(payload);
+            if (derived) {
+              return {
+                ...derived,
+                source: config.taskRuntimeUrl ? "task-runtime-endpoint" : `task-runtime-auto:${url}`,
+              };
+            }
+          } catch {
+            // try next
+          } finally {
+            clearTimeout(timeoutId);
           }
-
-          const payload = await response.json();
-          const derived = dashboardHelpers.deriveTaskRuntimeFromPayload(payload);
-          if (derived) {
-            return {
-              ...derived,
-              source: config.taskRuntimeUrl ? "task-runtime-endpoint" : `task-runtime-auto:${url}`,
-            };
-          }
-        } catch {
-          // try next
-        } finally {
-          clearTimeout(timeoutId);
         }
       }
-    }
 
-    return null;
+      return null;
+    }, options);
   }
 
   function unwrapUpstreamStatusPayload(payload) {
@@ -286,16 +359,21 @@ function createUpstreamClient(config, dashboardHelpers) {
     fetchOpenclawStatusAsync,
     fetchTaskRuntimeAsync,
     fetchTaskStatsAsync,
+    clearResponseCaches,
     getAgentTurnCandidates,
     getStatusEndpointCandidates,
     getTaskActionCandidates,
     getTaskRuntimeCandidates,
     getTaskStatsCandidates,
-    postAgentTurn(body = {}) {
-      return postJsonToCandidates(getAgentTurnCandidates(), config.agentTurnTimeoutMs, body);
+    async postAgentTurn(body = {}) {
+      const payload = await postJsonToCandidates(getAgentTurnCandidates(), config.agentTurnTimeoutMs, body);
+      clearResponseCaches();
+      return payload;
     },
-    postTaskAction(taskId, action) {
-      return postJsonToCandidates(getTaskActionCandidates(taskId, action), config.taskRuntimeTimeoutMs, {});
+    async postTaskAction(taskId, action) {
+      const payload = await postJsonToCandidates(getTaskActionCandidates(taskId, action), config.taskRuntimeTimeoutMs, {});
+      clearResponseCaches();
+      return payload;
     },
   };
 }

@@ -26,6 +26,52 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
 
   let wsServer = null;
 
+  function buildFallbackStatusFromPayload(payload) {
+    if (!payload || typeof payload !== "object") {
+      return {};
+    }
+
+    return {
+      zone: payload.zone || "",
+      task: payload.task || "",
+      description: payload.description || "",
+      mode: payload.mode || "",
+      alertLevel: payload.alertLevel || "",
+      position: payload.position || null,
+      openclaw: {
+        agents: Array.isArray(payload.openclaw?.agents) ? payload.openclaw.agents : [],
+      },
+      gateway: payload.openclaw?.gateway || null,
+      sessions: payload.openclaw?.sessions || null,
+      securityAudit: payload.openclaw?.securityAudit || null,
+      nodeService: payload.openclaw?.nodeService || null,
+    };
+  }
+
+  function buildOfflineStatusSeed(error) {
+    const detail = String(error?.message || error || "").trim();
+    return {
+      zone: "rest",
+      task: "Waiting for upstream",
+      description: detail || "Upstream status is temporarily unavailable.",
+      mode: "OFFLINE",
+      alertLevel: "OFFLINE",
+      position: { x: 4, y: 6 },
+      openclaw: {
+        agents: [],
+      },
+      gateway: {
+        reachable: false,
+      },
+      sessions: {
+        count: 0,
+        latest: null,
+      },
+      securityAudit: null,
+      nodeService: null,
+    };
+  }
+
   function attachWebSocketServer(server) {
     wsServer = server;
   }
@@ -231,16 +277,34 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
       const startedAt = Date.now();
 
       try {
-        const [rawStatus, externalTaskStats, externalTaskRuntime] = await Promise.all([
+        const [statusResult, taskStatsResult, taskRuntimeResult] = await Promise.allSettled([
           upstreamClient.fetchOpenclawStatusAsync(),
-          upstreamClient.fetchTaskStatsAsync().catch(() => null),
-          upstreamClient.fetchTaskRuntimeAsync().catch(() => null),
+          upstreamClient.fetchTaskStatsAsync(),
+          upstreamClient.fetchTaskRuntimeAsync(),
         ]);
-        const payload = dashboardHelpers.toDashboardPayload(rawStatus, externalTaskStats, externalTaskRuntime);
+        const rawStatus = statusResult.status === "fulfilled" ? statusResult.value : null;
+        const externalTaskStats = taskStatsResult.status === "fulfilled" ? taskStatsResult.value : null;
+        const externalTaskRuntime = taskRuntimeResult.status === "fulfilled" ? taskRuntimeResult.value : null;
+        const primaryError = statusResult.status === "rejected"
+          ? statusResult.reason
+          : taskRuntimeResult.status === "rejected"
+            ? taskRuntimeResult.reason
+            : taskStatsResult.status === "rejected"
+              ? taskStatsResult.reason
+              : null;
+
+        const payload = dashboardHelpers.toDashboardPayload(
+          rawStatus
+            || (streamState.latestPayload
+              ? buildFallbackStatusFromPayload(streamState.latestPayload)
+              : buildOfflineStatusSeed(primaryError)),
+          externalTaskStats,
+          externalTaskRuntime,
+        );
         const signature = JSON.stringify(payload);
 
         streamState.latestPayload = payload;
-        streamState.latestError = null;
+        streamState.latestError = rawStatus ? null : (primaryError?.message || String(primaryError || ""));
         streamState.latestUpdatedAtMs = Date.now();
         streamState.latestFetchDurationMs = Date.now() - startedAt;
 
@@ -333,6 +397,8 @@ function createStreamService(config, upstreamClient, dashboardHelpers) {
       ...streamState.latestPayload,
       _meta: {
         source: "cache",
+        degraded: Boolean(streamState.latestError),
+        lastError: streamState.latestError || null,
         ageMs: Math.max(0, Date.now() - streamState.latestUpdatedAtMs),
         fetchDurationMs: streamState.latestFetchDurationMs,
         pollIntervalMs: config.statusPollIntervalMs,

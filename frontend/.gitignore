@@ -15,8 +15,6 @@ screenshots/
 *.png
 *.jpg
 *.jpeg
-docs/videos/[0-9a-f]*.webm
-docs/videos/.tmp/
 
 # Keep runtime assets and repo docs previews
 !assets/**/*.png

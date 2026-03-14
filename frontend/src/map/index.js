@@ -713,11 +713,12 @@ import {
     }
 
     getAgentMarkerAlpha(agent, isFocused = false) {
+      void isFocused;
       if (agent?.enabled === false) {
-        return isFocused ? 0.42 : 0.2;
+        return 0.42;
       }
 
-      return isFocused ? 0.96 : 0.54;
+      return 0.96;
     }
 
     createAgentMarker(agent, isTownView) {

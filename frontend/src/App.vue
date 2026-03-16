@@ -55,7 +55,9 @@ const zonePills = [
             >
               {{ dashboard.syncBadgeText.value }}
             </span>
-            <span id="clock" class="clock">{{ dashboard.clockText.value }}</span>
+            <span id="clock" class="clock">{{
+              dashboard.clockText.value
+            }}</span>
           </div>
         </div>
 
@@ -95,10 +97,6 @@ const zonePills = [
               <dl class="metric-box">
                 <dt>运行中</dt>
                 <dd>{{ dashboard.systemOverview.value.runningTasks }}</dd>
-              </dl>
-              <dl class="metric-box">
-                <dt>活跃 Agent</dt>
-                <dd>{{ dashboard.systemOverview.value.activeAgentsText }}</dd>
               </dl>
             </div>
           </div>

@@ -94,10 +94,6 @@ const zonePills = [
                 <dt>队列</dt>
                 <dd>{{ dashboard.systemOverview.value.queuedTasks }}</dd>
               </dl>
-              <dl class="metric-box">
-                <dt>运行中</dt>
-                <dd>{{ dashboard.systemOverview.value.runningTasks }}</dd>
-              </dl>
             </div>
           </div>
 

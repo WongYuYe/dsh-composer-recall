@@ -1,0 +1,4 @@
+# bundle patch: insert composer recall into the host composition
+- insert:
+    - id: dsh-composer-recall
+      name: dsh-composer-recall

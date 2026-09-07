@@ -1,76 +1,59 @@
-# pokemon-claw
+# dsh-composer-recall
 
-`pokemon-claw` 是一个面向 OpenClaw 的本地可视化面板。
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
-它分成两层：
+English | [简体中文](README.zh-CN.md)
 
-- `frontend/`：本地页面、静态资源服务、上游接口聚合
-- `backend/`：本地 `openclaw` CLI 的 Fastify 包装层
+Arrow-key input history for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) web composer on **0.1.2-alpha.1**.
 
-当前默认运行方式是：
+Press **↑** in an empty composer (or with the caret at the start) to recall the current session's user prompts. **↓** walks forward. **Esc** restores the draft you were typing.
 
-- 页面在本地启动
-- 数据默认读取远程上游 `https://www.wangyuye.online/pokemon-claw`
-- 如果你本机装好了 `openclaw`，也可以切回本地后端模式
+This is written against the Lexical composer (`div[data-composer-input]`) and the official `conversation.input` `setDraft()` seam. Older plugins that still read `session.getSnapshot().nodes` or a `<textarea>` do not work on this host.
 
-## 仓库结构
+## Install
 
-```text
-.
-|-- frontend/
-|-- backend/
-`-- docs/
+```sh
+dsh plugin --profile desktop add dsh-composer-recall
 ```
 
-## 快速启动
+or from GitHub:
 
-只跑前端：
-
-```bash
-cd frontend
-npm install
-npm start
+```sh
+dsh plugin --profile desktop add github:WongYuYe/pokemon-claw
 ```
 
-打开：
+Restart DSH Desktop (or refresh the web GUI) after installing.
 
-- `http://127.0.0.1:3008/`
+From source:
 
-说明：
-
-- `npm start` 会启动本地开发服务并监听文件改动
-- 默认读取远程上游，所以不依赖本机安装 `openclaw`
-- 默认地址仍是 `http://127.0.0.1:3008/`
-- 前端源码改动会热更新
-- 本地聚合服务代码改动会自动重启
-
-## 切换到本地后端模式
-
-1. 先启动后端
-2. 再让前端指向 `http://127.0.0.1:8787`
-
-示意：
-
-```bash
-cd backend
-npm install
-npm start
+```sh
+git clone https://github.com/WongYuYe/pokemon-claw.git
+cd pokemon-claw
+dsh plugin --profile desktop add .
 ```
 
-然后启动前端前设置：
+## Use
 
-```bash
-OPENCLAW_UPSTREAM_BASE_URL=http://127.0.0.1:8787
-```
+1. Focus the composer.
+2. With an empty draft, or with the caret at the start of the draft, press **↑**.
+3. Press **↑** again for older prompts, **↓** to move forward.
+4. Press **Esc** to leave history and restore the stashed draft.
+5. Typing while browsing keeps the recalled text and leaves history mode.
 
-## 当前约束
+History is the user messages currently rendered in the open session. It is not a global ring across workspaces.
 
-- 项目中不写运行日志文件
-- README 保持简短，只写当前真实可用的信息
-- 前端固定以构建产物运行，避免源码模式和 `dist` 模式漂移
+## Compatibility
 
-## 进一步说明
+| Surface | Status |
+|---|---|
+| Harness | DeepSeek Harness `0.1.2-alpha.1` (Lexical composer) |
+| Platforms | Web GUI / DSH Desktop |
+| Persistence | Current session only (rendered user rows) |
 
-- 前端说明见 [frontend/README.md](./frontend/README.md)
-- 后端说明见 [backend/README.md](./backend/README.md)
-- 产品文档见 [docs/PRODUCT_CURRENT_2026-03-14.md](./docs/PRODUCT_CURRENT_2026-03-14.md)
+## Why this exists
+
+On 0.1.2-alpha.1 the session snapshot no longer exposes `nodes`, and the composer is a Lexical contenteditable rather than a textarea. Community history plugins targeting the rc line crash or silently no-op. This plugin reads `[data-chat-flow-kind="user"]` rows and writes through `shell.setDraft(text)`.
+
+## License
+
+MIT

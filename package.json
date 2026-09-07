@@ -1,0 +1,66 @@
+{
+  "name": "dsh-composer-recall",
+  "version": "0.1.0",
+  "description": "Arrow-key input history for the DSH web composer on 0.1.2-alpha.1: ↑/↓ recalls user prompts from the current session and writes them through the official Lexical setDraft seam.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "WongYuYe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WongYuYe/pokemon-claw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WongYuYe/pokemon-claw/issues"
+  },
+  "homepage": "https://github.com/WongYuYe/pokemon-claw#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "composer",
+    "input-history",
+    "keyboard-shortcuts",
+    "lexical"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.2-alpha.1 <0.2.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-ui-conversation": {
+      "optional": true
+    }
+  }
+}

@@ -21,12 +21,12 @@
   "author": "WongYuYe",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WongYuYe/pokemon-claw.git"
+    "url": "git+https://github.com/WongYuYe/dsh-composer-recall.git"
   },
   "bugs": {
-    "url": "https://github.com/WongYuYe/pokemon-claw/issues"
+    "url": "https://github.com/WongYuYe/dsh-composer-recall/issues"
   },
-  "homepage": "https://github.com/WongYuYe/pokemon-claw#readme",
+  "homepage": "https://github.com/WongYuYe/dsh-composer-recall#readme",
   "keywords": [
     "dsh",
     "dsh-plugin",

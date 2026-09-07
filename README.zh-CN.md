@@ -19,7 +19,7 @@ dsh plugin --profile desktop add dsh-composer-recall
 或从 GitHub：
 
 ```sh
-dsh plugin --profile desktop add github:WongYuYe/pokemon-claw
+dsh plugin --profile desktop add github:WongYuYe/dsh-composer-recall
 ```
 
 装完请重启 DSH Desktop（或刷新 Web GUI）。
@@ -27,8 +27,8 @@ dsh plugin --profile desktop add github:WongYuYe/pokemon-claw
 从源码：
 
 ```sh
-git clone https://github.com/WongYuYe/pokemon-claw.git
-cd pokemon-claw
+git clone https://github.com/WongYuYe/dsh-composer-recall.git
+cd dsh-composer-recall
 dsh plugin --profile desktop add .
 ```
 

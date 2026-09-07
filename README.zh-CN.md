@@ -4,11 +4,11 @@
 
 [English](README.md) | 简体中文
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) **0.1.2-alpha.1** Web 输入框用的方向键历史。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) **0.1.2-alpha.1** 输入框用的方向键历史。
 
-空输入框（或光标在草稿开头）按 **↑** 召回当前会话里已发送的用户消息。**↓** 前进。**Esc** 还原你正在打的草稿。
+空输入框（或光标在草稿开头）按 **↑** 召回当前会话里刚发过的话，**↓** 前进，**Esc** 还原正在打的草稿。
 
-它对着 Lexical 作曲器（`div[data-composer-input]`）和官方 `conversation.input` 的 `setDraft()` 来写。仍然去读 `session.getSnapshot().nodes` 或 `<textarea>` 的旧插件在这个宿主上会崩或没反应。
+适配 Lexical 输入框（`div[data-composer-input]`）和官方 `setDraft()`。仍去读 `session.getSnapshot().nodes` 或 `<textarea>` 的旧历史插件，在这个版本上会崩或没反应。
 
 ## 安装
 

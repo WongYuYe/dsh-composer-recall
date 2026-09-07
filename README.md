@@ -4,11 +4,11 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Arrow-key input history for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) web composer on **0.1.2-alpha.1**.
+Arrow-key input history for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) composer on **0.1.2-alpha.1**.
 
-Press **↑** in an empty composer (or with the caret at the start) to recall the current session's user prompts. **↓** walks forward. **Esc** restores the draft you were typing.
+Press **↑** in an empty box (or with the caret at the start) to recall this session's prompts. **↓** walks forward. **Esc** restores the draft you were typing.
 
-This is written against the Lexical composer (`div[data-composer-input]`) and the official `conversation.input` `setDraft()` seam. Older plugins that still read `session.getSnapshot().nodes` or a `<textarea>` do not work on this host.
+Built for the Lexical composer (`div[data-composer-input]`) and the official `setDraft()` API. Older history plugins that still look for `session.getSnapshot().nodes` or a `<textarea>` crash or do nothing on this host.
 
 ## Install
 

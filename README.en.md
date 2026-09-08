@@ -1,14 +1,14 @@
 # dsh-composer-recall
 
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+[![npm](https://img.shields.io/npm/v/dsh-composer-recall?style=flat-square)](https://www.npmjs.com/package/dsh-composer-recall)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [简体中文](README.md) | English
 
-Arrow-key input history for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) composer on **0.1.2-alpha.1**.
+Arrow-key input history for the [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) composer: press **↑** in an empty box to recall this session’s prompts, **↓** to go forward, **Esc** to restore the draft you were typing.
 
-Press **↑** in an empty box (or with the caret at the start) to recall this session's prompts. **↓** walks forward. **Esc** restores the draft you were typing.
-
-Built for the Lexical composer (`div[data-composer-input]`) and the official `setDraft()` API. Older history plugins that still look for `session.getSnapshot().nodes` or a `<textarea>` crash or do nothing on this host.
+Built for the current Lexical composer. Older history plugins that still look for `session.getSnapshot().nodes` or a `<textarea>` crash or do nothing on this host.
 
 ## Install
 
@@ -22,9 +22,7 @@ or from GitHub:
 dsh plugin --profile desktop add github:WongYuYe/dsh-composer-recall
 ```
 
-Restart DSH Desktop (or refresh the web GUI) after installing.
-
-Release: bump `package.json` to `X.Y.Z` and push a `vX.Y.Z` tag. GitHub Actions opens the GitHub Release and publishes to npm with Trusted Publisher (OIDC).
+Refresh the web GUI or restart DSH Desktop.
 
 From source:
 
@@ -34,27 +32,21 @@ cd dsh-composer-recall
 dsh plugin --profile desktop add .
 ```
 
+Requires DeepSeek Harness `0.1.2-alpha.1` or later (Lexical composer).
+
 ## Use
 
 1. Focus the composer.
-2. With an empty draft, or with the caret at the start of the draft, press **↑**.
+2. With an empty draft, or with the caret at the start, press **↑**.
 3. Press **↑** again for older prompts, **↓** to move forward.
 4. Press **Esc** to leave history and restore the stashed draft.
 5. Typing while browsing keeps the recalled text and leaves history mode.
 
-History is the user messages currently rendered in the open session. It is not a global ring across workspaces.
+History is the user messages currently shown in the open session. It is not a global ring across workspaces.
 
-## Compatibility
+## Release
 
-| Surface | Status |
-|---|---|
-| Harness | DeepSeek Harness `0.1.2-alpha.1` (Lexical composer) |
-| Platforms | Web GUI / DSH Desktop |
-| Persistence | Current session only (rendered user rows) |
-
-## Why this exists
-
-On 0.1.2-alpha.1 the session snapshot no longer exposes `nodes`, and the composer is a Lexical contenteditable rather than a textarea. Community history plugins targeting the rc line crash or silently no-op. This plugin reads `[data-chat-flow-kind="user"]` rows and writes through `shell.setDraft(text)`.
+Bump `package.json` to `X.Y.Z` and push a `vX.Y.Z` tag. GitHub Actions opens the Release and publishes to npm with Trusted Publisher.
 
 ## License
 

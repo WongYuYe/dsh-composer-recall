@@ -24,6 +24,8 @@ dsh plugin --profile desktop add github:WongYuYe/dsh-composer-recall
 
 装完请重启 DSH Desktop（或刷新 Web GUI）。
 
+发布：把 `package.json` 版本改成 `X.Y.Z` 后推 `vX.Y.Z` tag。GitHub Actions 会打 GitHub Release 并用 Trusted Publisher（OIDC）发到 npm。
+
 从源码：
 
 ```sh

@@ -24,6 +24,8 @@ dsh plugin --profile desktop add github:WongYuYe/dsh-composer-recall
 
 Restart DSH Desktop (or refresh the web GUI) after installing.
 
+Release: bump `package.json` to `X.Y.Z` and push a `vX.Y.Z` tag. GitHub Actions opens the GitHub Release and publishes to npm with Trusted Publisher (OIDC).
+
 From source:
 
 ```sh

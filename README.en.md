@@ -44,10 +44,6 @@ Requires DeepSeek Harness `0.1.2-alpha.1` or later (Lexical composer).
 
 History is the user messages currently shown in the open session. It is not a global ring across workspaces.
 
-## Release
-
-Bump `package.json` to `X.Y.Z` and push a `vX.Y.Z` tag. GitHub Actions opens the Release and publishes to npm with Trusted Publisher.
-
 ## License
 
 MIT

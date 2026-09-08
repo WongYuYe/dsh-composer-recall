@@ -44,10 +44,6 @@ dsh plugin --profile desktop add .
 
 历史只来自当前会话已经显示出来的用户消息，不是跨工作区的全局环。
 
-## 发布
-
-把 `package.json` 改成 `X.Y.Z`，推 `vX.Y.Z` tag。GitHub Actions 会打 Release 并用 Trusted Publisher 发到 npm。
-
 ## License
 
 MIT
